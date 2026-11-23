@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const PERSON_COLORS = ['#e4572e', '#2e86ab', '#a23b72', '#f18f01', '#3b8e5a', '#6a4c93', '#1b998b', '#d1495b', '#5f7a00', '#8d6a9f', '#00798c', '#c26b00'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 const CURRENCIES = ['MYR', 'SGD', 'USD', 'EUR', 'GBP', 'THB', 'IDR', 'JPY', 'KRW', 'CNY', 'AUD', 'HKD', 'TWD'];
@@ -1304,5 +1304,12 @@ document.addEventListener('input', e => {
   applyTheme();
   window.addEventListener('hashchange', () => { if (location.hash !== '#/new') state.scanError = null; render(); });
   render();
-  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      // Check for a new version whenever the app is opened or brought back to the front.
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      check();
+    }).catch(() => {});
+  }
 })();
