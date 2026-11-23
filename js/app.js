@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const PERSON_COLORS = ['#e4572e', '#2e86ab', '#a23b72', '#f18f01', '#3b8e5a', '#6a4c93', '#1b998b', '#d1495b', '#5f7a00', '#8d6a9f', '#00798c', '#c26b00'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 const CURRENCIES = ['MYR', 'SGD', 'USD', 'EUR', 'GBP', 'THB', 'IDR', 'JPY', 'KRW', 'CNY', 'AUD', 'HKD', 'TWD'];
@@ -392,7 +392,7 @@ function editorPage() {
       <div class="head" data-act="edit-item" data-id="${it.id}"><span class="name">${esc(it.name)}${qtyLine(it, cur)}</span><span class="num">${fmt(S.toCents(it.amount), cur)}</span></div>
       ${it.byUnit && it.qty > 1 ? `<div class="units">${parts.map(pid => `<div class="row">${avatar(pid, 'sm')}<span class="grow small">${esc(pname(pid))}</span>
           <span class="stepper"><button data-act="unit-dec" data-item="${it.id}" data-pid="${pid}" aria-label="Less">−</button><span>${it.shares[pid] || 0}</span><button data-act="unit-inc" data-item="${it.id}" data-pid="${pid}" aria-label="More">+</button></span></div>`).join('')}</div>`
-        : `<div class="chips">${parts.map(pid => chip(pid, it.shares[pid] > 0, 'toggle-share', `data-item="${it.id}"`)).join('')}${parts.length > 1 ? `<button class="chip plain" data-act="share-all" data-item="${it.id}">Everyone</button>` : ''}</div>`}
+        : `<div class="chips">${parts.map(pid => chip(pid, it.shares[pid] > 0, 'toggle-share', `data-item="${it.id}"`)).join('')}${parts.length > 1 ? `<button class="chip plain ${parts.every(p => it.shares[p] > 0) ? 'on' : ''}" data-act="share-all" data-item="${it.id}">Everyone</button>` : ''}</div>`}
       <div class="row between small muted" style="margin-top:6px"><span>${hint || (un ? '<span class="bad">Tap who had this</span>' : '')}</span>${it.qty > 1 ? `<button class="btn sm ghost" data-act="toggle-units" data-item="${it.id}">${it.byUnit ? 'Split equally instead' : 'Split by units'}</button>` : ''}</div>
     </div>`;
   }).join('');

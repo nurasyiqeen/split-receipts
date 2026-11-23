@@ -186,18 +186,23 @@ input[type=checkbox] { accent-color: var(--accent); }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .chip {
   display: inline-flex; align-items: center; gap: 7px; border: 1.5px solid var(--line); background: transparent;
-  border-radius: 999px; padding: 3px 12px 3px 3px; font-size: 14px; font-weight: 550; cursor: pointer; min-height: 36px;
-  color: var(--ink-2); transition: background .15s, border-color .15s, color .15s;
+  border-radius: 999px; padding: 3px 13px 3px 3px; font-size: 14px; font-weight: 550; cursor: pointer; min-height: 38px;
+  color: var(--ink-3); transition: background .15s, border-color .15s, color .15s, transform .08s;
 }
-.chip .avatar { width: 28px; height: 28px; font-size: 11px; opacity: .55; transition: opacity .15s; }
+.chip:active { transform: scale(.96); }
+.chip .avatar { width: 30px; height: 30px; font-size: 11px; opacity: .45; filter: saturate(.5); transition: opacity .15s; }
+/* Selected: solid fill in the person's colour, white tick instead of initials. */
 .chip.on {
-  border-color: color-mix(in srgb, var(--c, var(--accent)) 75%, transparent);
-  background: color-mix(in srgb, var(--c, var(--accent)) 18%, transparent);
-  color: var(--ink); font-weight: 700;
+  background: var(--c, var(--accent)); border-color: var(--c, var(--accent)); color: #fff; font-weight: 700;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--c, var(--accent)) 35%, transparent);
 }
-.chip.on .avatar { opacity: 1; }
-.chip.plain { padding: 3px 14px; color: var(--ink-2); }
-.chip.dashed { border-style: dashed; color: var(--accent-text); padding: 3px 14px 3px 10px; border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.chip.on .avatar { opacity: 1; filter: none; background: rgba(255, 255, 255, .95) !important; color: var(--c, var(--accent)); font-size: 0; box-shadow: none; }
+.chip.on .avatar::before { content: ""; width: 15px; height: 15px; background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat; }
+.chip.plain { padding: 3px 15px; color: var(--ink-2); }
+.chip.plain.on { --c: var(--accent); color: var(--accent-ink); }
+.chip.dashed { border-style: dashed; color: var(--accent-text); padding: 3px 14px 3px 10px; border-color: color-mix(in srgb, var(--accent) 45%, transparent); box-shadow: none; }
 
 /* ---------- items ---------- */
 .item { padding: 14px 16px; position: relative; }
