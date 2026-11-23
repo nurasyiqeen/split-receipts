@@ -217,6 +217,7 @@ function receiptRow(r) {
   return `<a href="#/r/${r.id}">${avatar(r.payerId, 'sm')}<div class="grow"><div class="ellipsis">${esc(r.merchant || 'Receipt')}</div><div class="small muted">${fmtDate(r.date)} · ${r.participants.length} people${r.groupId ? ' · ' + esc(state.groups.find(g => g.id === r.groupId)?.name || '') : ''}</div></div><div class="amt num">${fmt(total, r.currency)}</div></a>`;
 }
 
+const monthName = m => { const d = new Date(m + '-01T00:00:00'); return isNaN(d) ? m : d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }); };
 let receiptFilter = { q: '', group: '' };
 function receiptsPage() {
   const q = receiptFilter.q.toLowerCase();
@@ -225,7 +226,6 @@ function receiptsPage() {
     .sort(byDateDesc);
   const months = {};
   for (const r of list) { const m = (r.date || '').slice(0, 7) || 'Undated'; (months[m] ||= []).push(r); }
-  const monthName = m => { const d = new Date(m + '-01T00:00:00'); return isNaN(d) ? m : d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }); };
   const html = `
     <div class="row" style="margin-top:4px">
       <input type="text" id="rq" placeholder="Search shop, item or friend" value="${esc(receiptFilter.q)}" class="grow">
@@ -234,6 +234,7 @@ function receiptsPage() {
     <div id="rlist">${Object.entries(months).map(([m, rs]) => `<div class="card flush"><h2>${esc(monthName(m))}</h2><div class="list">${rs.map(receiptRow).join('')}</div></div>`).join('') || `<div class="empty">${state.receipts.length ? 'No matching receipts.' : 'No receipts yet.'}</div>`}</div>`;
   return {
     title: 'Receipts', html, tab: 'receipts',
+    actions: state.receipts.length ? `<button class="btn sm" data-act="report" data-id="${receiptFilter.group}">${icon('gallery', 'width=16 height=16')} Report</button>` : '',
     after() {
       const rq = $('#rq');
       rq.oninput = () => { receiptFilter.q = rq.value; const pos = rq.selectionStart; render(); const n = $('#rq'); n.focus(); n.setSelectionRange(pos, pos); };
@@ -775,6 +776,7 @@ function groupPage(id) {
       return `<${pid === ME ? 'li' : `a href="#/f/${pid}"`}>${avatar(pid)}<div class="grow"><div>${esc(pname(pid))}</div><div class="small muted">Spent ${fmtMulti(spend[pid] || {})} in this group</div></div><div class="amt num small ${v > 0 ? 'good' : v < 0 ? 'bad' : 'muted'}">${pid === ME ? '' : v ? `${v > 0 ? 'owes you' : 'you owe'}<br>${fmt(Math.abs(v), Object.keys(b)[0])}` : 'settled'}</div></${pid === ME ? 'li' : 'a'}>`;
     }).join('')}</div></div>
     <div class="btns"><button class="btn primary" data-act="group-receipt" data-id="${id}">${icon('camera', 'width=20 height=20')} New receipt</button><button class="btn" data-act="group-add-existing" data-id="${id}">${icon('plus', 'width=20 height=20')} Add existing</button></div>
+    ${rs.length ? `<button class="btn block" style="margin-top:8px" data-act="report" data-id="${id}">${icon('gallery', 'width=20 height=20')} Monthly report image</button>` : ''}
     <div class="card flush"><h2>Receipts</h2>${rs.length ? `<div class="list">${rs.map(receiptRow).join('')}</div>` : '<div class="empty">No receipts in this group yet.</div>'}</div>`;
   return { title: g.name, back: '#/groups', tab: 'friends', html, actions: `<button class="icon-btn" data-act="edit-group" data-id="${id}" aria-label="Edit">${icon('edit')}</button>` };
 }
@@ -937,6 +939,101 @@ async function imageSheet(spec, filename, text) {
     try { await navigator.share({ files: [file], text }); } catch (e) { if (e.name !== 'AbortError') download(filename, blob); }
   });
 }
+// ----- monthly report (debts per person, one line per receipt, no items) -----
+function reportData(groupId, month, who) {
+  const rs = state.receipts.filter(r => (!groupId || r.groupId === groupId) && (r.date || '').startsWith(month))
+    .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || 0) - (b.createdAt || 0));
+  const pairs = new Map(); // "from|to|cur" -> {from, to, cur, total, lines}
+  for (const r of rs) for (const d of S.receiptDebts(r)) {
+    if (who && d.from !== who) continue;
+    const key = `${d.from}|${d.to}|${d.currency}`;
+    if (!pairs.has(key)) pairs.set(key, { from: d.from, to: d.to, cur: d.currency, total: 0, lines: [] });
+    const p = pairs.get(key);
+    p.total += d.cents;
+    p.lines.push({ date: r.date, merchant: r.merchant, cents: d.cents });
+  }
+  const list = [...pairs.values()];
+  // Group by debtor (me last), and within a debtor put what they owe me first.
+  list.sort((a, b) => (a.from === ME) - (b.from === ME) || pname(a.from).localeCompare(pname(b.from)) || (b.to === ME) - (a.to === ME) || pname(a.to).localeCompare(pname(b.to)));
+  return { receipts: rs, pairs: list };
+}
+const shortDate = iso => { const d = new Date(iso + 'T00:00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
+
+function reportImageSpec(groupId, month, who) {
+  const { receipts, pairs } = reportData(groupId, month, who);
+  const g = state.groups.find(x => x.id === groupId);
+  const totals = {};
+  for (const p of pairs) totals[p.cur] = (totals[p.cur] || 0) + p.total;
+  const single = who && pairs.length === 1 ? pairs[0] : null;
+  return {
+    title: g ? g.name : who ? `${imgName(who)}` : 'All receipts',
+    subtitle: `${monthName(month)} report${g && who ? ` · ${imgName(who)}` : ''}`,
+    big: pairs.length ? fmtMulti(totals) : 'Nothing owed',
+    bigNote: single ? `${imgName(single.from)} owes ${imgName(single.to)} · ${single.lines.length} receipt${single.lines.length > 1 ? 's' : ''}`
+      : `Total owed · ${receipts.length} receipt${receipts.length === 1 ? '' : 's'}`,
+    sections: pairs.length ? pairs.map(p => ({
+      heading: imgName(p.from), color: person(p.from).color, amount: fmt(p.total, p.cur),
+      note: pairs.every(x => x.to === ME) ? '' : `owes ${imgName(p.to)}`,
+      lines: p.lines.map(l => [`${shortDate(l.date)} · ${l.merchant}`, fmt(l.cents, p.cur)]),
+    })) : [{ heading: '', lines: [] }],
+    footer: 'Each amount is that person’s share of the receipt, incl. tax & charges.',
+  };
+}
+function reportText(groupId, month, who) {
+  const { pairs } = reportData(groupId, month, who);
+  const g = state.groups.find(x => x.id === groupId);
+  const lines = [`📊 *${g ? g.name + ' · ' : ''}${monthName(month)}*`, ''];
+  for (const p of pairs) {
+    lines.push(`*${imgName(p.from)}* owes ${imgName(p.to)}: *${fmt(p.total, p.cur)}*`);
+    for (const l of p.lines) lines.push(`  • ${shortDate(l.date)} · ${l.merchant}: ${fmt(l.cents, p.cur)}`);
+    lines.push('');
+  }
+  return lines.join('\n').trim();
+}
+
+function reportSheet(groupId) {
+  const months = rid => [...new Set(state.receipts.filter(r => (!rid || r.groupId === rid) && r.date).map(r => r.date.slice(0, 7)))].sort().reverse();
+  let sel = { group: groupId, month: months(groupId)[0] || todayISO().slice(0, 7), who: '' };
+  let blob, url;
+  const dlg = sheet(`<h3>Monthly report</h3>
+    <div class="fields">
+      <label class="field full"><span>Group</span><select id="rpg"><option value="">All receipts</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>
+      <label class="field"><span>Month</span><select id="rpm"></select></label>
+      <label class="field"><span>Show</span><select id="rpw"></select></label>
+    </div>
+    <img id="rpi" alt="Report preview" style="width:100%;max-height:48vh;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line);margin-top:12px">
+    <div class="btns" style="margin-top:12px"><button class="btn" id="rps">Save image</button><button class="btn" id="rpt">WhatsApp text</button><button class="btn primary" id="rpx" hidden>Share image</button></div>`,
+  { onClose: () => url && URL.revokeObjectURL(url) });
+  const $d = q => dlg.querySelector(q);
+  const fill = () => {
+    const ms = months(sel.group);
+    if (!ms.includes(sel.month)) sel.month = ms[0] || sel.month;
+    $d('#rpm').innerHTML = (ms.length ? ms : [sel.month]).map(m => `<option value="${m}" ${m === sel.month ? 'selected' : ''}>${monthName(m)}</option>`).join('');
+    const debtors = [...new Set(reportData(sel.group, sel.month, '').pairs.map(p => p.from))];
+    if (!debtors.includes(sel.who)) sel.who = '';
+    $d('#rpw').innerHTML = `<option value="">Everyone</option>${debtors.map(pid => `<option value="${pid}" ${pid === sel.who ? 'selected' : ''}>${esc(pname(pid))} only</option>`).join('')}`;
+  };
+  const draw = async () => {
+    fill();
+    blob = await makeImage(reportImageSpec(sel.group, sel.month, sel.who));
+    if (url) URL.revokeObjectURL(url);
+    url = URL.createObjectURL(blob);
+    $d('#rpi').src = url;
+    $d('#rpx').hidden = !navigator.canShare?.({ files: [new File([blob], 'r.png', { type: 'image/png' })] });
+  };
+  const fname = () => `report-${slug(state.groups.find(g => g.id === sel.group)?.name || 'all')}-${sel.month}${sel.who ? '-' + slug(pname(sel.who)) : ''}.png`;
+  $d('#rpg').onchange = e => { sel.group = e.target.value; draw(); };
+  $d('#rpm').onchange = e => { sel.month = e.target.value; draw(); };
+  $d('#rpw').onchange = e => { sel.who = e.target.value; draw(); };
+  $d('#rps').onclick = () => download(fname(), blob);
+  $d('#rpt').onclick = () => shareText(reportText(sel.group, sel.month, sel.who), sel.who ? person(sel.who).phone : '');
+  $d('#rpx').onclick = async () => {
+    try { await navigator.share({ files: [new File([blob], fname(), { type: 'image/png' })], text: reportText(sel.group, sel.month, sel.who) }); }
+    catch (e) { if (e.name !== 'AbortError') download(fname(), blob); }
+  };
+  draw();
+}
+
 const slug = s => String(s || 'receipt').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 // ----- settings -----
@@ -1087,6 +1184,7 @@ const actions = {
   'image-friend': el => imageSheet(friendImageSpec(el.dataset.id), `statement-${slug(pname(el.dataset.id))}-${todayISO()}.png`, reminderText(el.dataset.id)),
   'receipt-new-group': el => newGroupForReceipt(el.dataset.id),
   'group-add-existing': el => addExistingSheet(el.dataset.id),
+  'report': el => reportSheet(el.dataset.id || ''),
   'new-friend': () => friendSheet(null),
   'edit-friend': el => friendSheet(person(el.dataset.id)),
   'record-payment': el => paymentSheet(el.dataset.id),

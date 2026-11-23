@@ -1,5 +1,5 @@
 // Offline support: serve the app shell from cache, refresh it in the background.
-const CACHE = 'split-receipts-v2';
+const CACHE = 'split-receipts-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'js/app.js', 'js/db.js', 'js/scan.js', 'js/split.js', 'manifest.json', 'icon.svg', 'icon-192.png'];
 
 self.addEventListener('install', e => {
