@@ -209,6 +209,8 @@ function homePage() {
   return { title: 'Split Receipts', html, tab: 'home' };
 }
 
+const totalQty = r => r.items.reduce((s, i) => s + (i.qty || 1), 0);
+const qtyLine = (it, cur) => `<span class="qty-line">Qty ${it.qty}${it.qty > 1 ? ` × ${fmt(Math.round(S.toCents(it.amount) / it.qty), cur)}` : ''}</span>`;
 const byDateDesc = (a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0);
 function receiptRow(r) {
   const total = S.receiptTotal(r);
@@ -312,7 +314,7 @@ async function runScan() {
   go('#/new');
   try {
     const data = await scanWithFallback({ apiKey: state.settings.apiKey, model: state.settings.model, imageBase64: await blobToBase64(state.draftPhoto), mimeType: state.draftPhoto.type || 'image/jpeg' },
-      m => { state.scanning = `Using ${m}…`; if (location.hash === '#/new') rerender(); });
+      (m, round) => { state.scanning = m ? (round ? `Busy, retrying (${m})…` : `Using ${m}…`) : 'Google is busy, waiting a moment…'; if (location.hash === '#/new') rerender(); });
     state.scanning = null;
     if (!data.items.length) throw new Error("No items found. Make sure the whole receipt is in the photo and it's in focus.");
     startDraft(data, true);
@@ -381,10 +383,10 @@ function editorPage() {
     let hint = '';
     if (it.byUnit && it.qty > 1) {
       const used = Object.values(it.shares).reduce((s, n) => s + n, 0);
-      hint = `${used} of ${it.qty} assigned · ${fmt(Math.round(S.toCents(it.amount) / it.qty), cur)} each`;
-    } else if (takers.length > 1) hint = `Shared by ${takers.length} · ${fmt(Math.round(S.toCents(it.amount) / takers.length), cur)} each`;
+      hint = `${used} of ${it.qty} assigned`;
+    } else if (takers.length > 1) hint = `Shared by ${takers.length} · ${fmt(Math.round(S.toCents(it.amount) / takers.length), cur)} per person`;
     return `<div class="item ${un ? 'unassigned' : ''}" data-item="${it.id}">
-      <div class="head" data-act="edit-item" data-id="${it.id}"><span class="name">${esc(it.name)} ${it.qty > 1 ? `<span class="qty">×${it.qty}</span>` : ''}</span><span class="num">${fmt(S.toCents(it.amount), cur)}</span></div>
+      <div class="head" data-act="edit-item" data-id="${it.id}"><span class="name">${esc(it.name)}${qtyLine(it, cur)}</span><span class="num">${fmt(S.toCents(it.amount), cur)}</span></div>
       ${it.byUnit && it.qty > 1 ? `<div class="units">${parts.map(pid => `<div class="row">${avatar(pid, 'sm')}<span class="grow small">${esc(pname(pid))}</span>
           <span class="stepper"><button data-act="unit-dec" data-item="${it.id}" data-pid="${pid}" aria-label="Less">−</button><span>${it.shares[pid] || 0}</span><button data-act="unit-inc" data-item="${it.id}" data-pid="${pid}" aria-label="More">+</button></span></div>`).join('')}</div>`
         : `<div class="chips">${parts.map(pid => chip(pid, it.shares[pid] > 0, 'toggle-share', `data-item="${it.id}"`)).join('')}${parts.length > 1 ? `<button class="chip plain" data-act="share-all" data-item="${it.id}">Everyone</button>` : ''}</div>`}
@@ -413,7 +415,8 @@ function editorPage() {
       <div class="chips">${parts.map(pid => chip(pid, true, 'people')).join('')}<button class="chip dashed" data-act="people">${icon('plus', 'width=16 height=16')} Add friends</button></div>
     </div>
     <div class="card flush">
-      <div class="row between" style="padding-right:12px"><h2>Items · tap who had what</h2><button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button></div>
+      <div class="row between" style="padding-right:12px"><h2>Items · Qty ${totalQty(d)}</h2><button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button></div>
+      ${d.items.length ? '<p class="small muted" style="margin:2px 16px 4px">Tap who had each item.</p>' : ''}
       ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}
     </div>
     <div class="card">
@@ -542,20 +545,25 @@ function receiptPage(id) {
     return `<div class="person-sum"><details><summary class="row">${avatar(pid)}<div class="grow"><div>${esc(pname(pid))}</div><div class="small muted">${pid === r.payerId ? 'paid the bill' : pid === ME ? `you owe ${esc(pname(r.payerId))}` : `owes ${r.payerId === ME ? 'you' : esc(pname(r.payerId))}`}</div></div><div class="amt num">${fmt(p.total, cur)}</div></summary>
       <div class="lines">${p.lines.map(l => `<div class="sumline"><span>${esc(l.name)}${l.units ? ` ×${l.units}` : l.sharedWith > 1 ? ` (1/${l.sharedWith})` : ''}</span><span class="num">${fmt(l.amount, cur)}</span></div>`).join('')}
       ${p.extra ? `<div class="sumline"><span>Tax, charges & discounts</span><span class="num">${fmt(p.extra, cur)}</span></div>` : ''}
-      ${pid !== ME ? `<button class="btn sm" style="margin-top:6px" data-act="share-person" data-id="${r.id}" data-pid="${pid}">${icon('share', 'width=16 height=16')} Send ${esc(pname(pid))} their share${phone ? '' : ''}</button>` : ''}</div></details></div>`;
+      ${pid !== ME ? `<button class="btn sm" style="margin-top:6px" data-act="share-person" data-id="${r.id}" data-pid="${pid}">${icon('share', 'width=16 height=16')} Send ${esc(pname(pid))} their share</button>` : ''}<button class="btn sm" style="margin-top:6px" data-act="image-person" data-id="${r.id}" data-pid="${pid}">${icon('gallery', 'width=16 height=16')} Image</button></div></details></div>`;
   }).join('');
   const html = `
     <div class="card">
-      <div class="muted small">${fmtDate(r.date)}${group ? ` · <a href="#/g/${group.id}">${esc(group.name)}</a>` : ''}</div>
+      <div class="muted small">${fmtDate(r.date)}</div>
       <div class="big-amount num">${fmt(split.total, cur)}</div>
       <div class="row small muted">${avatar(r.payerId, 'sm')} Paid by ${esc(pname(r.payerId))}</div>
       ${r.note ? `<p class="small" style="margin-bottom:0">${esc(r.note)}</p>` : ''}
+      <hr>
+      <div class="row">${icon('group', 'width=20 height=20 style="flex:none;color:var(--ink-2)"')}
+        ${state.groups.length ? `<select data-receipt-group="${r.id}" aria-label="Group" class="grow"><option value="">Not in a group</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === r.groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}<option value="__new">+ New group…</option></select>${group ? `<a class="btn sm" href="#/g/${group.id}">Open</a>` : ''}`
+          : `<span class="grow small muted">Not in a group</span><button class="btn sm" data-act="receipt-new-group" data-id="${r.id}">Add to a group</button>`}
+      </div>
     </div>
     <div class="card flush"><h2>Who owes what</h2>${people}</div>
     ${r.hasPhoto ? `<div class="card" style="padding:8px"><img class="thumb" id="rimg" alt="Receipt photo" data-act="zoom-photo"></div>` : ''}
-    <div class="card flush"><h2>Items</h2><div class="list">${r.items.map(it => `<li><div class="grow"><div>${esc(it.name)}${it.qty > 1 ? ` <span class="muted">×${it.qty}</span>` : ''}</div><div class="small muted">${Object.entries(it.shares).filter(([, n]) => n > 0).map(([pid, n]) => esc(pname(pid)) + (it.byUnit && it.qty > 1 ? ` ×${n}` : '')).join(', ')}</div></div><div class="num">${fmt(S.toCents(it.amount), cur)}</div></li>`).join('')}
+    <div class="card flush"><h2>Items · Qty ${totalQty(r)}</h2><div class="list">${r.items.map(it => `<li><div class="grow"><div>${esc(it.name)}${qtyLine(it, cur)}</div><div class="small muted">${Object.entries(it.shares).filter(([, n]) => n > 0).map(([pid, n]) => esc(pname(pid)) + (it.byUnit && it.qty > 1 ? ` ×${n}` : '')).join(', ')}</div></div><div class="num">${fmt(S.toCents(it.amount), cur)}</div></li>`).join('')}
       ${r.adjustments.map(a => `<li class="small muted"><div class="grow">${esc(a.label)}</div><div class="num">${fmt(S.toCents(a.amount), cur)}</div></li>`).join('')}</div></div>
-    <div class="btns"><button class="btn primary" data-act="share-receipt" data-id="${r.id}">${icon('share', 'width=20 height=20')} Share on WhatsApp</button></div>
+    <div class="btns"><button class="btn primary" data-act="share-receipt" data-id="${r.id}">${icon('share', 'width=20 height=20')} WhatsApp text</button><button class="btn primary" data-act="image-receipt" data-id="${r.id}">${icon('gallery', 'width=20 height=20')} Image</button></div>
     <div class="btns" style="margin-top:8px"><a class="btn" href="#/r/${r.id}/edit">${icon('edit', 'width=20 height=20')} Edit</a><button class="btn danger" data-act="delete-receipt" data-id="${r.id}">${icon('trash', 'width=20 height=20')} Delete</button></div>`;
   return { title: r.merchant || 'Receipt', back: '#/receipts', tab: 'receipts', html, after: () => setPhoto('#rimg', r.id) };
 }
@@ -660,7 +668,7 @@ function friendPage(id) {
       ${curs.length ? `<button class="btn primary" data-act="settle" data-id="${id}">Mark as paid</button>` : ''}
       <button class="btn" data-act="record-payment" data-id="${id}">Record payment</button>
     </div>
-    ${owesMe ? `<div class="btns" style="margin-top:8px"><button class="btn" data-act="remind" data-id="${id}">${icon('share', 'width=20 height=20')} Send reminder on WhatsApp</button></div>` : ''}
+    <div class="btns" style="margin-top:8px">${owesMe ? `<button class="btn" data-act="remind" data-id="${id}">${icon('share', 'width=20 height=20')} WhatsApp reminder</button>` : ''}${curs.length ? `<button class="btn" data-act="image-friend" data-id="${id}">${icon('gallery', 'width=20 height=20')} Statement image</button>` : ''}</div>
     <div class="card flush"><h2>History</h2>${ev.length ? `<div class="list">${evHtml}</div>` : '<div class="empty">Nothing yet.</div>'}</div>`;
   return { title: f.name, back: '#/friends', tab: 'friends', html, actions: `<button class="icon-btn" data-act="edit-friend" data-id="${id}" aria-label="Edit">${icon('edit')}</button>` };
 }
@@ -729,7 +737,7 @@ function groupsPage() {
     <button class="btn primary block" data-act="new-group">${icon('plus', 'width=20 height=20')} New group</button>`;
   return { title: 'Groups', back: '#/friends', tab: 'friends', html };
 }
-function groupSheet(g) {
+function groupSheet(g, onCreated) {
   const sel = new Set(g?.members || [ME]);
   const dlg = sheet(`<h3>${g ? 'Edit group' : 'New group'}</h3>
     <label class="field"><span>Name</span><input type="text" id="gn" value="${esc(g?.name || '')}" placeholder="e.g. Housemates"></label>
@@ -743,7 +751,7 @@ function groupSheet(g) {
     if (!name) return toast('Enter a group name.');
     const rec = { ...(g || { id: uid(), createdAt: Date.now() }), name, members: [...sel] };
     await putRecord('groups', rec);
-    dlg.close(); g ? rerender() : go(`#/g/${rec.id}`);
+    dlg.close(); if (onCreated) await onCreated(rec); else if (g) rerender(); else go(`#/g/${rec.id}`);
   };
   dlg.querySelector('#gd')?.addEventListener('click', async () => {
     dlg.close();
@@ -766,10 +774,170 @@ function groupPage(id) {
       const b = pid === ME ? {} : S.balanceWith(bal, ME, pid); const v = Object.values(b)[0] || 0;
       return `<${pid === ME ? 'li' : `a href="#/f/${pid}"`}>${avatar(pid)}<div class="grow"><div>${esc(pname(pid))}</div><div class="small muted">Spent ${fmtMulti(spend[pid] || {})} in this group</div></div><div class="amt num small ${v > 0 ? 'good' : v < 0 ? 'bad' : 'muted'}">${pid === ME ? '' : v ? `${v > 0 ? 'owes you' : 'you owe'}<br>${fmt(Math.abs(v), Object.keys(b)[0])}` : 'settled'}</div></${pid === ME ? 'li' : 'a'}>`;
     }).join('')}</div></div>
-    <button class="btn primary block" data-act="group-receipt" data-id="${id}">${icon('camera', 'width=20 height=20')} New receipt for this group</button>
+    <div class="btns"><button class="btn primary" data-act="group-receipt" data-id="${id}">${icon('camera', 'width=20 height=20')} New receipt</button><button class="btn" data-act="group-add-existing" data-id="${id}">${icon('plus', 'width=20 height=20')} Add existing</button></div>
     <div class="card flush"><h2>Receipts</h2>${rs.length ? `<div class="list">${rs.map(receiptRow).join('')}</div>` : '<div class="empty">No receipts in this group yet.</div>'}</div>`;
   return { title: g.name, back: '#/groups', tab: 'friends', html, actions: `<button class="icon-btn" data-act="edit-group" data-id="${id}" aria-label="Edit">${icon('edit')}</button>` };
 }
+
+async function setReceiptGroup(rid, gid) {
+  const r = state.receipts.find(x => x.id === rid);
+  await putRecord('receipts', { ...r, groupId: gid });
+  const g = state.groups.find(x => x.id === gid);
+  toast(g ? `Added to ${g.name}` : 'Removed from group');
+  rerender();
+}
+function newGroupForReceipt(rid) {
+  const r = state.receipts.find(x => x.id === rid);
+  // Start the new group with the people from this receipt.
+  groupSheet(null, rec => setReceiptGroup(rid, rec.id));
+  const dlg = document.querySelector('dialog.sheet:last-of-type');
+  dlg?.querySelectorAll('[data-p]').forEach(b => { if (r.participants.includes(b.dataset.p) && !b.classList.contains('on')) b.click(); });
+}
+function addExistingSheet(gid) {
+  const g = state.groups.find(x => x.id === gid);
+  const list = state.receipts.filter(r => r.groupId !== gid).sort(byDateDesc);
+  if (!list.length) return toast('All your receipts are already in this group.');
+  const sel = new Set();
+  const dlg = sheet(`<h3>Add receipts to ${esc(g.name)}</h3>
+    <div class="list" style="max-height:50vh;overflow:auto;margin:0 -16px">${list.map(r => {
+      const other = state.groups.find(x => x.id === r.groupId);
+      return `<li data-r="${r.id}" style="cursor:pointer"><input type="checkbox" style="width:22px;height:22px;min-height:0;flex:none;accent-color:var(--accent)" tabindex="-1"><div class="grow"><div class="ellipsis">${esc(r.merchant)}</div><div class="small muted">${fmtDate(r.date)} · ${r.participants.map(pname).map(esc).join(', ')}${other ? ` · <span class="bad">moves from ${esc(other.name)}</span>` : ''}</div></div><div class="amt num small">${fmt(S.receiptTotal(r), r.currency)}</div></li>`;
+    }).join('')}</div>
+    <label class="row small" style="margin-top:12px"><input type="checkbox" id="addm" checked style="width:auto;min-height:0;accent-color:var(--accent)"> Also add the people on these receipts to the group</label>
+    <button class="btn primary block" style="margin-top:12px" id="ax" disabled>Add receipts</button>`);
+  const btn = dlg.querySelector('#ax');
+  dlg.querySelectorAll('[data-r]').forEach(li => li.onclick = () => {
+    const id = li.dataset.r; sel.has(id) ? sel.delete(id) : sel.add(id);
+    li.querySelector('input').checked = sel.has(id);
+    btn.disabled = !sel.size; btn.textContent = sel.size ? `Add ${sel.size} receipt${sel.size > 1 ? 's' : ''}` : 'Add receipts';
+  });
+  btn.onclick = async () => {
+    const members = new Set(g.members);
+    for (const id of sel) {
+      const r = state.receipts.find(x => x.id === id);
+      await putRecord('receipts', { ...r, groupId: gid });
+      if (dlg.querySelector('#addm').checked) r.participants.forEach(p => members.add(p));
+    }
+    if (members.size !== g.members.length) await putRecord('groups', { ...g, members: [...members] });
+    dlg.close(); toast(`Added ${sel.size} receipt${sel.size > 1 ? 's' : ''}`); rerender();
+  };
+}
+
+// ----- image export -----
+const imgName = id => (id === ME ? (state.settings.myName || 'Me') : pname(id));
+function shareLineLabel(l) { return `${l.name}${l.units ? ` ×${l.units}` : l.sharedWith > 1 ? ` (1/${l.sharedWith})` : ''}`; }
+
+// Draws a clean, receipt-style summary card and returns a PNG blob.
+async function makeImage({ title, subtitle, big, bigNote, sections, footer }) {
+  const W = 1080, P = 64, accent = state.settings.accent;
+  const F = (w, px) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  const ink = '#1b1f1d', ink2 = '#5d6661', line = '#e3e6e2';
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const fit = (text, max) => { text = String(text); if (ctx.measureText(text).width <= max) return text; while (text.length > 1 && ctx.measureText(text + '…').width > max) text = text.slice(0, -1); return text + '…'; };
+  const ops = []; let y = 0;
+  const block = (h, fn) => { const top = y; ops.push(() => fn(top)); y += h; };
+
+  block(bigNote ? 340 : 300, t => {
+    ctx.fillStyle = accent; ctx.fillRect(0, t, W, bigNote ? 340 : 300);
+    ctx.fillStyle = '#fff';
+    ctx.font = F(700, 54); ctx.fillText(fit(title, W - 2 * P), P, t + 96);
+    ctx.globalAlpha = 0.9; ctx.font = F(500, 32); ctx.fillText(fit(subtitle, W - 2 * P), P, t + 146); ctx.globalAlpha = 1;
+    ctx.font = F(800, 80); ctx.fillText(big, P, t + 250);
+    if (bigNote) { ctx.globalAlpha = 0.9; ctx.font = F(500, 32); ctx.fillText(fit(bigNote, W - 2 * P), P, t + 305); ctx.globalAlpha = 1; }
+  });
+  y += 24;
+  for (const s of sections) {
+    block(s.heading ? 84 : 20, t => {
+      if (!s.heading) return;
+      let x = P;
+      if (s.color) {
+        ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(P + 28, t + 46, 28, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.font = F(700, 24); ctx.textAlign = 'center'; ctx.fillText(initials(s.heading), P + 28, t + 55); ctx.textAlign = 'left';
+        x = P + 76;
+      }
+      ctx.font = F(700, 38); ctx.textAlign = 'right'; ctx.fillStyle = ink;
+      const amtW = s.amount ? ctx.measureText(s.amount).width : 0;
+      if (s.amount) ctx.fillText(s.amount, W - P, t + 59);
+      ctx.textAlign = 'left';
+      ctx.font = F(650, 38); const name = fit(s.heading, W - P - x - amtW - 140); ctx.fillText(name, x, t + 59);
+      if (s.note) { const nx = x + ctx.measureText(name).width + 14; ctx.font = F(500, 26); ctx.fillStyle = ink2; ctx.fillText(s.note, nx, t + 59); }
+    });
+    for (const [l, r, strong] of s.lines) block(48, t => {
+      ctx.fillStyle = strong ? ink : ink2;
+      ctx.font = F(strong ? 650 : 400, 30);
+      ctx.textAlign = 'right'; const rw = ctx.measureText(r).width; ctx.fillText(r, W - P, t + 34);
+      ctx.textAlign = 'left'; ctx.fillText(fit(l, W - 2 * P - rw - 110 - (s.color ? 76 : 0)), P + (s.color ? 76 : 0), t + 34);
+    });
+    block(36, t => { ctx.strokeStyle = line; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(P, t + 18); ctx.lineTo(W - P, t + 18); ctx.stroke(); });
+  }
+  block(footer ? 130 : 90, t => {
+    ctx.fillStyle = ink2; ctx.font = F(400, 26);
+    let yy = t + 40;
+    if (footer) { ctx.fillText(fit(footer, W - 2 * P), P, yy); yy += 46; }
+    ctx.fillStyle = accent; ctx.font = F(650, 26); ctx.fillText('Split Receipts', P, yy);
+  });
+
+  c.width = W; c.height = y;
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, y);
+  ctx.textBaseline = 'alphabetic';
+  for (const op of ops) op();
+  return new Promise(res => c.toBlob(res, 'image/png'));
+}
+
+function receiptImageSpec(r) {
+  const split = S.splitReceipt(r);
+  const cur = r.currency;
+  const sections = r.participants.filter(pid => split.people[pid]).map(pid => {
+    const p = split.people[pid];
+    return { heading: imgName(pid), color: person(pid).color, amount: fmt(p.total, cur), note: pid === r.payerId ? 'paid' : '',
+      lines: [...p.lines.map(l => [shareLineLabel(l), fmt(l.amount, cur)]), ...(p.extra ? [['Tax, charges & discounts', fmt(p.extra, cur)]] : [])] };
+  });
+  sections.push({ heading: `Receipt · Qty ${totalQty(r)}`, lines: [
+    ['Items', fmt(S.itemsTotal(r), cur)], ...r.adjustments.map(a => [a.label, fmt(S.toCents(a.amount), cur)]), ['Total', fmt(split.total, cur), true]] });
+  return { title: r.merchant, subtitle: `${fmtDate(r.date)} · Paid by ${imgName(r.payerId)}`, big: fmt(split.total, cur), sections,
+    footer: 'Tax, service charge & discounts shared by what each person ordered.' };
+}
+function personImageSpec(r, pid) {
+  const p = S.splitReceipt(r).people[pid];
+  const cur = r.currency;
+  return { title: r.merchant, subtitle: fmtDate(r.date), big: fmt(p.total, cur),
+    bigNote: `${imgName(pid)}'s share${r.payerId !== pid ? ` · pay ${imgName(r.payerId)}` : ''}`,
+    sections: [{ heading: imgName(pid), color: person(pid).color, amount: fmt(p.total, cur),
+      lines: [...p.lines.map(l => [shareLineLabel(l), fmt(l.amount, cur)]), ...(p.extra ? [['Tax, charges & discounts', fmt(p.extra, cur)]] : [])] }],
+    footer: 'Tax, service charge & discounts shared by what each person ordered.' };
+}
+function friendImageSpec(fid) {
+  const f = person(fid);
+  const bal = S.balanceWith(balances(), ME, fid);
+  const ev = S.ledger(state.receipts, state.payments, ME, fid);
+  const curs = Object.keys(bal);
+  const sections = curs.map(c => ({
+    heading: curs.length > 1 ? c : 'Still owing', lines: [
+      ...S.outstanding(ev, c).map(e => [`${fmtDate(e.date)} · ${e.type === 'receipt' ? e.receipt.merchant : (e.cents < 0 ? 'Payment' : 'Paid to you')}`, fmt(bal[c] > 0 ? e.cents : -e.cents, c, e.type === 'payment')]),
+      ['Balance', fmt(Math.abs(bal[c]), c), true]] }));
+  const first = curs[0];
+  return { title: f.name, subtitle: `Statement · ${fmtDate(todayISO())}`, big: first ? fmt(Math.abs(bal[first]), first) : 'Settled up',
+    bigNote: first ? (bal[first] > 0 ? `${f.name} owes ${imgName(ME)}` : `${imgName(ME)} owes ${f.name}`) : 'Nothing owed either way',
+    sections: sections.length ? sections : [{ heading: '', lines: [] }] };
+}
+
+async function imageSheet(spec, filename, text) {
+  const blob = await makeImage(spec);
+  const url = URL.createObjectURL(blob);
+  const file = new File([blob], filename, { type: 'image/png' });
+  const canShare = !!navigator.canShare?.({ files: [file] });
+  const dlg = sheet(`<h3>Image</h3>
+    <img src="${url}" alt="Split summary image" style="width:100%;max-height:58vh;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line)">
+    <p class="small muted" style="margin:8px 0">Tip: you can also long-press the image to save or copy it.</p>
+    <div class="btns"><button class="btn" id="isave">Save image</button>${canShare ? '<button class="btn primary" id="ishare">Share</button>' : ''}</div>`,
+  { onClose: () => setTimeout(() => URL.revokeObjectURL(url), 1000) });
+  dlg.querySelector('#isave').onclick = () => download(filename, blob);
+  dlg.querySelector('#ishare')?.addEventListener('click', async () => {
+    try { await navigator.share({ files: [file], text }); } catch (e) { if (e.name !== 'AbortError') download(filename, blob); }
+  });
+}
+const slug = s => String(s || 'receipt').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 // ----- settings -----
 function settingsPage() {
@@ -914,6 +1082,11 @@ const actions = {
     await delRecord('receipts', r.id); await db.del('photos', r.id);
     toast('Deleted'); go('#/receipts');
   },
+  'image-receipt': el => { const r = state.receipts.find(x => x.id === el.dataset.id); imageSheet(receiptImageSpec(r), `${slug(r.merchant)}-${r.date}.png`, `${r.merchant} · ${fmtDate(r.date)}`); },
+  'image-person': el => { const r = state.receipts.find(x => x.id === el.dataset.id); imageSheet(personImageSpec(r, el.dataset.pid), `${slug(r.merchant)}-${slug(pname(el.dataset.pid))}.png`, personShareText(r, el.dataset.pid)); },
+  'image-friend': el => imageSheet(friendImageSpec(el.dataset.id), `statement-${slug(pname(el.dataset.id))}-${todayISO()}.png`, reminderText(el.dataset.id)),
+  'receipt-new-group': el => newGroupForReceipt(el.dataset.id),
+  'group-add-existing': el => addExistingSheet(el.dataset.id),
   'new-friend': () => friendSheet(null),
   'edit-friend': el => friendSheet(person(el.dataset.id)),
   'record-payment': el => paymentSheet(el.dataset.id),
@@ -985,6 +1158,11 @@ document.addEventListener('click', e => {
 document.addEventListener('change', async e => {
   const t = e.target;
   if (t.matches('[data-photo]')) { const f = t.files[0]; t.value = ''; await handlePhoto(f); return; }
+  if (t.matches('[data-receipt-group]')) {
+    const rid = t.dataset.receiptGroup;
+    if (t.value === '__new') { t.value = state.receipts.find(x => x.id === rid)?.groupId || ''; newGroupForReceipt(rid); return; }
+    await setReceiptGroup(rid, t.value); return;
+  }
   if (t.matches('[data-restore]')) { const f = t.files[0]; t.value = ''; if (f) restore(f); return; }
   if (t.matches('[data-setting]')) {
     let v = t.value;

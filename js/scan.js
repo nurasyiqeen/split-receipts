@@ -3,6 +3,8 @@
 // Flash-Lite read all sample receipts correctly, is fast, and has the most generous free quota.
 export const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 export const FALLBACK_MODELS = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+const RETRY_DELAYS = [0, 2000, 5000]; // Gemini 'high demand' errors are brief, so retry in rounds
+const REQUEST_TIMEOUT = 45000;
 
 const SCHEMA = {
   type: 'OBJECT',
@@ -60,7 +62,7 @@ Rules:
 - Check before answering: sum(lineTotal) should equal subtotal, and subtotal + sum(adjustments) should equal total. If not, re-read the receipt.
 If the image is not a receipt, return empty items and zero totals.`;
 
-export async function scanReceipt({ apiKey, model = DEFAULT_MODEL, imageBase64, mimeType = 'image/jpeg', fetchImpl = fetch, baseUrl = 'https://generativelanguage.googleapis.com' }) {
+export async function scanReceipt({ apiKey, model = DEFAULT_MODEL, imageBase64, mimeType = 'image/jpeg', fetchImpl = fetch, baseUrl = 'https://generativelanguage.googleapis.com', signal }) {
   const body = {
     contents: [{ role: 'user', parts: [{ inline_data: { mime_type: mimeType, data: imageBase64 } }, { text: PROMPT }] }],
     generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: SCHEMA },
@@ -68,7 +70,7 @@ export async function scanReceipt({ apiKey, model = DEFAULT_MODEL, imageBase64, 
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) headers['x-goog-api-key'] = apiKey;
   const res = await fetchImpl(`${baseUrl}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST', headers, body: JSON.stringify(body),
+    method: 'POST', headers, body: JSON.stringify(body), signal,
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -83,22 +85,38 @@ export async function scanReceipt({ apiKey, model = DEFAULT_MODEL, imageBase64, 
   return normalize(data);
 }
 
-// Try the chosen model, then fall back to others if it is unavailable or rate-limited.
+// Try the chosen model, then fall back to others if busy or unavailable; repeat a few rounds with
+// short pauses because overload errors usually clear within seconds.
 export async function scanWithFallback(opts, onAttempt) {
-  const models = [opts.model || DEFAULT_MODEL, ...FALLBACK_MODELS.filter(m => m !== opts.model)];
+  let models = [...new Set([opts.model || DEFAULT_MODEL, ...FALLBACK_MODELS])];
   let lastErr;
-  for (const model of models) {
-    try {
-      onAttempt?.(model);
-      const r = await scanReceipt({ ...opts, model });
-      r.model = model;
-      return r;
-    } catch (e) {
-      lastErr = e;
-      if (![404, 429, 500, 503].includes(e.status)) throw e;
+  for (let round = 0; round < RETRY_DELAYS.length; round++) {
+    if (RETRY_DELAYS[round]) { onAttempt?.(null, round); await new Promise(r => setTimeout(r, RETRY_DELAYS[round])); }
+    for (const model of models) {
+      try {
+        onAttempt?.(model, round);
+        const r = await withTimeout(signal => scanReceipt({ ...opts, model, signal }));
+        r.model = model;
+        return r;
+      } catch (e) {
+        lastErr = e;
+        if (e.status === 404) { models = models.filter(m => m !== model); continue; } // retired model: skip for good
+        if (![429, 500, 503, 504, 'timeout'].includes(e.status)) throw e;
+      }
     }
+    if (!models.length) break;
   }
+  if (lastErr?.status === 503 || lastErr?.status === 'timeout') lastErr.message = 'Google\'s scanner is very busy right now. Please try again in a minute.';
   throw lastErr;
+}
+
+async function withTimeout(fn) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT);
+  try { return await fn(ctl.signal); } catch (e) {
+    if (e.name === 'AbortError') { const err = new Error('Request timed out'); err.status = 'timeout'; throw err; }
+    throw e;
+  } finally { clearTimeout(t); }
 }
 
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
