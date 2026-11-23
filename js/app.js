@@ -14,7 +14,7 @@ const MODELS = [
   ['gemini-flash-latest', 'Gemini Flash (smarter, lower free limit)'],
   ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
 ];
-const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', theme: 'auto', accent: ACCENTS[0] };
+const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', cycleDay: 3, theme: 'auto', accent: ACCENTS[0] };
 
 const state = { people: [], groups: [], receipts: [], payments: [], settings: { ...DEFAULT_SETTINGS }, draft: null, draftPhoto: null, scanning: null, scanError: null, pendingGroup: '' };
 
@@ -776,7 +776,7 @@ function groupPage(id) {
       return `<${pid === ME ? 'li' : `a href="#/f/${pid}"`}>${avatar(pid)}<div class="grow"><div>${esc(pname(pid))}</div><div class="small muted">Spent ${fmtMulti(spend[pid] || {})} in this group</div></div><div class="amt num small ${v > 0 ? 'good' : v < 0 ? 'bad' : 'muted'}">${pid === ME ? '' : v ? `${v > 0 ? 'owes you' : 'you owe'}<br>${fmt(Math.abs(v), Object.keys(b)[0])}` : 'settled'}</div></${pid === ME ? 'li' : 'a'}>`;
     }).join('')}</div></div>
     <div class="btns"><button class="btn primary" data-act="group-receipt" data-id="${id}">${icon('camera', 'width=20 height=20')} New receipt</button><button class="btn" data-act="group-add-existing" data-id="${id}">${icon('plus', 'width=20 height=20')} Add existing</button></div>
-    ${rs.length ? `<button class="btn block" style="margin-top:8px" data-act="report" data-id="${id}">${icon('gallery', 'width=20 height=20')} Monthly report image</button>` : ''}
+    ${rs.length ? `<button class="btn block" style="margin-top:8px" data-act="report" data-id="${id}">${icon('gallery', 'width=20 height=20')} Report image</button>` : ''}
     <div class="card flush"><h2>Receipts</h2>${rs.length ? `<div class="list">${rs.map(receiptRow).join('')}</div>` : '<div class="empty">No receipts in this group yet.</div>'}</div>`;
   return { title: g.name, back: '#/groups', tab: 'friends', html, actions: `<button class="icon-btn" data-act="edit-group" data-id="${id}" aria-label="Edit">${icon('edit')}</button>` };
 }
@@ -939,9 +939,9 @@ async function imageSheet(spec, filename, text) {
     try { await navigator.share({ files: [file], text }); } catch (e) { if (e.name !== 'AbortError') download(filename, blob); }
   });
 }
-// ----- monthly report (debts per person, one line per receipt, no items) -----
-function reportData(groupId, month, who) {
-  const rs = state.receipts.filter(r => (!groupId || r.groupId === groupId) && (r.date || '').startsWith(month))
+// ----- group report (debts per person, one line per receipt, no items) -----
+function reportData(groupId, range, who) {
+  const rs = state.receipts.filter(r => (!groupId || r.groupId === groupId) && (!range.from || (r.date || '') >= range.from) && (!range.to || (r.date || '9') <= range.to))
     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || 0) - (b.createdAt || 0));
   const pairs = new Map(); // "from|to|cur" -> {from, to, cur, total, lines}
   for (const r of rs) for (const d of S.receiptDebts(r)) {
@@ -959,15 +959,15 @@ function reportData(groupId, month, who) {
 }
 const shortDate = iso => { const d = new Date(iso + 'T00:00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); };
 
-function reportImageSpec(groupId, month, who) {
-  const { receipts, pairs } = reportData(groupId, month, who);
+function reportImageSpec(groupId, range, who) {
+  const { receipts, pairs } = reportData(groupId, range, who);
   const g = state.groups.find(x => x.id === groupId);
   const totals = {};
   for (const p of pairs) totals[p.cur] = (totals[p.cur] || 0) + p.total;
   const single = who && pairs.length === 1 ? pairs[0] : null;
   return {
     title: g ? g.name : who ? `${imgName(who)}` : 'All receipts',
-    subtitle: `${monthName(month)} report${g && who ? ` · ${imgName(who)}` : ''}`,
+    subtitle: `${rangeLabel(range, receipts)}${g && who ? ` · ${imgName(who)}` : ''}`,
     big: pairs.length ? fmtMulti(totals) : 'Nothing owed',
     bigNote: single ? `${imgName(single.from)} owes ${imgName(single.to)} · ${single.lines.length} receipt${single.lines.length > 1 ? 's' : ''}`
       : `Total owed · ${receipts.length} receipt${receipts.length === 1 ? '' : 's'}`,
@@ -979,10 +979,10 @@ function reportImageSpec(groupId, month, who) {
     footer: 'Each amount is that person’s share of the receipt, incl. tax & charges.',
   };
 }
-function reportText(groupId, month, who) {
-  const { pairs } = reportData(groupId, month, who);
+function reportText(groupId, range, who) {
+  const { receipts, pairs } = reportData(groupId, range, who);
   const g = state.groups.find(x => x.id === groupId);
-  const lines = [`📊 *${g ? g.name + ' · ' : ''}${monthName(month)}*`, ''];
+  const lines = [`📊 *${g ? g.name : 'All receipts'}* · ${rangeLabel(range, receipts)}`, ''];
   for (const p of pairs) {
     lines.push(`*${imgName(p.from)}* owes ${imgName(p.to)}: *${fmt(p.total, p.cur)}*`);
     for (const l of p.lines) lines.push(`  • ${shortDate(l.date)} · ${l.merchant}: ${fmt(l.cents, p.cur)}`);
@@ -991,44 +991,70 @@ function reportText(groupId, month, who) {
   return lines.join('\n').trim();
 }
 
+// Card cycles end on settings.cycleDay (e.g. the 3rd): a cycle runs from the day after to that day next month.
+function cycleRange(offset = 0) {
+  const day = Math.min(28, Math.max(1, Number(state.settings.cycleDay) || 3));
+  const now = new Date();
+  let y = now.getFullYear(), m = now.getMonth(); // m = month in which the current cycle ends
+  if (now.getDate() > day) m += 1;
+  m += offset;
+  const iso = (yy, mm, dd) => { const d = new Date(yy, mm, dd); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  return { from: iso(y, m - 1, day + 1), to: iso(y, m, day) };
+}
+function rangeLabel(range, receipts) {
+  if (range.from || range.to) return `${range.from ? fmtDate(range.from) : 'Start'} – ${range.to ? fmtDate(range.to) : 'today'}`;
+  const ds = receipts.map(r => r.date).filter(Boolean).sort();
+  return ds.length ? `All receipts · ${fmtDate(ds[0])} – ${fmtDate(ds[ds.length - 1])}` : 'All receipts';
+}
+
 function reportSheet(groupId) {
-  const months = rid => [...new Set(state.receipts.filter(r => (!rid || r.groupId === rid) && r.date).map(r => r.date.slice(0, 7)))].sort().reverse();
-  let sel = { group: groupId, month: months(groupId)[0] || todayISO().slice(0, 7), who: '' };
+  let sel = { group: groupId, period: 'all', from: '', to: '', who: '' };
   let blob, url;
-  const dlg = sheet(`<h3>Monthly report</h3>
+  const cur = cycleRange(0), prev = cycleRange(-1);
+  const short = r => `${shortDate(r.from)} – ${shortDate(r.to)}`;
+  const dlg = sheet(`<h3>Report</h3>
     <div class="fields">
       <label class="field full"><span>Group</span><select id="rpg"><option value="">All receipts</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>
-      <label class="field"><span>Month</span><select id="rpm"></select></label>
+      <label class="field"><span>Period</span><select id="rpp">
+        <option value="all">All receipts</option>
+        <option value="cur">This card cycle (${short(cur)})</option>
+        <option value="prev">Last card cycle (${short(prev)})</option>
+        <option value="custom">Custom dates…</option></select></label>
       <label class="field"><span>Show</span><select id="rpw"></select></label>
+      <label class="field" id="rpf" hidden><span>From</span><input type="date" id="rpfrom"></label>
+      <label class="field" id="rpt2" hidden><span>To</span><input type="date" id="rpto"></label>
     </div>
-    <img id="rpi" alt="Report preview" style="width:100%;max-height:48vh;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line);margin-top:12px">
+    <img id="rpi" alt="Report preview" style="width:100%;max-height:46vh;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line);margin-top:12px">
     <div class="btns" style="margin-top:12px"><button class="btn" id="rps">Save image</button><button class="btn" id="rpt">WhatsApp text</button><button class="btn primary" id="rpx" hidden>Share image</button></div>`,
   { onClose: () => url && URL.revokeObjectURL(url) });
   const $d = q => dlg.querySelector(q);
-  const fill = () => {
-    const ms = months(sel.group);
-    if (!ms.includes(sel.month)) sel.month = ms[0] || sel.month;
-    $d('#rpm').innerHTML = (ms.length ? ms : [sel.month]).map(m => `<option value="${m}" ${m === sel.month ? 'selected' : ''}>${monthName(m)}</option>`).join('');
-    const debtors = [...new Set(reportData(sel.group, sel.month, '').pairs.map(p => p.from))];
+  const range = () => sel.period === 'cur' ? cur : sel.period === 'prev' ? prev : sel.period === 'custom' ? { from: sel.from, to: sel.to } : { from: '', to: '' };
+  const draw = async () => {
+    const custom = sel.period === 'custom';
+    $d('#rpf').hidden = !custom; $d('#rpt2').hidden = !custom;
+    const debtors = [...new Set(reportData(sel.group, range(), '').pairs.map(p => p.from))];
     if (!debtors.includes(sel.who)) sel.who = '';
     $d('#rpw').innerHTML = `<option value="">Everyone</option>${debtors.map(pid => `<option value="${pid}" ${pid === sel.who ? 'selected' : ''}>${esc(pname(pid))} only</option>`).join('')}`;
-  };
-  const draw = async () => {
-    fill();
-    blob = await makeImage(reportImageSpec(sel.group, sel.month, sel.who));
+    blob = await makeImage(reportImageSpec(sel.group, range(), sel.who));
     if (url) URL.revokeObjectURL(url);
     url = URL.createObjectURL(blob);
     $d('#rpi').src = url;
     $d('#rpx').hidden = !navigator.canShare?.({ files: [new File([blob], 'r.png', { type: 'image/png' })] });
   };
-  const fname = () => `report-${slug(state.groups.find(g => g.id === sel.group)?.name || 'all')}-${sel.month}${sel.who ? '-' + slug(pname(sel.who)) : ''}.png`;
+  const fname = () => { const r = range(); return `report-${slug(state.groups.find(g => g.id === sel.group)?.name || 'all')}${r.from || r.to ? `-${r.from || 'start'}-to-${r.to || 'now'}` : ''}${sel.who ? '-' + slug(pname(sel.who)) : ''}.png`; };
   $d('#rpg').onchange = e => { sel.group = e.target.value; draw(); };
-  $d('#rpm').onchange = e => { sel.month = e.target.value; draw(); };
+  $d('#rpp').onchange = e => {
+    sel.period = e.target.value;
+    if (sel.period === 'custom' && !sel.from && !sel.to) { sel.from = cur.from; sel.to = cur.to; $d('#rpfrom').value = sel.from; $d('#rpto').value = sel.to; }
+    draw();
+  };
+  $d('#rpfrom').onchange = e => { sel.from = e.target.value; draw(); };
+  $d('#rpto').onchange = e => { sel.to = e.target.value; draw(); };
   $d('#rpw').onchange = e => { sel.who = e.target.value; draw(); };
   $d('#rps').onclick = () => download(fname(), blob);
-  $d('#rpt').onclick = () => shareText(reportText(sel.group, sel.month, sel.who), sel.who ? person(sel.who).phone : '');
+  $d('#rpt').onclick = () => shareText(reportText(sel.group, range(), sel.who), sel.who ? person(sel.who).phone : '');
   $d('#rpx').onclick = async () => {
-    try { await navigator.share({ files: [new File([blob], fname(), { type: 'image/png' })], text: reportText(sel.group, sel.month, sel.who) }); }
+    try { await navigator.share({ files: [new File([blob], fname(), { type: 'image/png' })], text: reportText(sel.group, range(), sel.who) }); }
     catch (e) { if (e.name !== 'AbortError') download(fname(), blob); }
   };
   draw();
@@ -1056,6 +1082,7 @@ function settingsPage() {
       <div class="fields">
         <label class="field"><span>Default currency</span><select data-setting="currency">${CURRENCIES.map(c => `<option ${c === s.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
         <label class="field"><span>Phone country code</span><input type="tel" data-setting="countryCode" value="${esc(s.countryCode)}" placeholder="60"></label>
+        <label class="field full"><span>Credit card cycle ends on day (for reports)</span><select data-setting="cycleDay">${Array.from({ length: 28 }, (_, i) => i + 1).map(d => `<option ${Number(s.cycleDay) === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
       </div>
     </div>
     <div class="card stack">

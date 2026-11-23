@@ -11,7 +11,7 @@ A phone-friendly web app for splitting bills with friends. Snap a receipt, tap w
 - **Balances.** See per-friend balances, record partial payments, "Mark as paid", and see who owes whom between friends.
 - **WhatsApp.** Share a receipt summary, send a friend their share, or send a reminder with everything still owing.
 - **Groups** (e.g. "Housemates", "Penang trip") add everyone at once. Saved receipts can be moved into any group, either from the receipt's page or with "Add existing" on the group page.
-- **Monthly report image** per group (or all receipts): each friend's total for the month with one line per receipt (no items), for everyone or one person. Also as WhatsApp text.
+- **Report image** per group (or all receipts): each friend's total with one line per receipt (no items). Period: all receipts, this or last credit card cycle (cycle end day set in Settings, default the 3rd), or custom dates, for everyone or one person. Also as WhatsApp text.
 - **Image export.** Share or save a picture of the whole split, of one person's share, or of a friend's statement.
 - Every item shows its quantity (and unit price), and each receipt shows its total quantity.
 - **Receipt photos** are kept with each receipt.
