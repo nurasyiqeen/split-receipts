@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.2.1';
+const VERSION = '1.2.2';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -1084,8 +1084,8 @@ function settingsPage() {
     </div>
     <div class="card stack">
       <h2>Appearance</h2>
-      <div class="seg">${[['lively', '✿ Lively'], ['classic', 'Classic']].map(([v, l]) => `<button class="${s.style === v ? 'on' : ''}" data-act="style" data-v="${v}">${l}</button>`).join('')}</div>
-      ${s.style === 'lively' ? `<label class="row small"><input type="checkbox" data-act="pattern" ${s.pattern !== false ? 'checked' : ''} style="width:20px;height:20px;min-height:0"> Sparkly background pattern</label>` : ''}
+      <div class="seg">${[['lively', 'Lively'], ['classic', 'Classic']].map(([v, l]) => `<button class="${s.style === v ? 'on' : ''}" data-act="style" data-v="${v}">${l}</button>`).join('')}</div>
+      ${s.style === 'lively' ? `<label class="row small"><input type="checkbox" data-act="pattern" ${s.pattern !== false ? 'checked' : ''} style="width:20px;height:20px;min-height:0"> Background pattern</label>` : ''}
       <div class="seg">${['auto', 'light', 'dark'].map(t => `<button class="${s.theme === t ? 'on' : ''}" data-act="theme" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
       <div class="swatches">${(STYLES[s.style] || ACCENTS).map(c => `<button class="swatch ${c === s.accent ? 'on' : ''}" style="background:${c}" data-act="accent" data-v="${c}" aria-label="Accent colour"></button>`).join('')}</div>
     </div>
