@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.2.0';
+const VERSION = '1.2.1';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -17,7 +17,7 @@ const MODELS = [
   ['gemini-flash-latest', 'Gemini Flash (smarter, lower free limit)'],
   ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
 ];
-const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', theme: 'auto', style: 'lively', accent: '#e8508a' };
+const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', theme: 'auto', style: 'lively', pattern: true, accent: '#e8508a' };
 
 const state = { people: [], groups: [], receipts: [], payments: [], settings: { ...DEFAULT_SETTINGS }, draft: null, draftPhoto: null, scanning: null, scanError: null, pendingGroup: '' };
 
@@ -111,6 +111,7 @@ function applyTheme() {
   const root = document.documentElement;
   if (theme === 'auto') delete root.dataset.theme; else root.dataset.theme = theme;
   root.dataset.style = style;
+  root.dataset.pattern = state.settings.pattern === false ? 'off' : 'on';
   root.style.setProperty('--accent', accent);
   root.style.setProperty('--accent-2', LIVELY[accent] || `color-mix(in srgb, ${accent} 65%, #04140f)`);
   const me = state.people.find(p => p.id === ME);
@@ -1084,6 +1085,7 @@ function settingsPage() {
     <div class="card stack">
       <h2>Appearance</h2>
       <div class="seg">${[['lively', '✿ Lively'], ['classic', 'Classic']].map(([v, l]) => `<button class="${s.style === v ? 'on' : ''}" data-act="style" data-v="${v}">${l}</button>`).join('')}</div>
+      ${s.style === 'lively' ? `<label class="row small"><input type="checkbox" data-act="pattern" ${s.pattern !== false ? 'checked' : ''} style="width:20px;height:20px;min-height:0"> Sparkly background pattern</label>` : ''}
       <div class="seg">${['auto', 'light', 'dark'].map(t => `<button class="${s.theme === t ? 'on' : ''}" data-act="theme" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
       <div class="swatches">${(STYLES[s.style] || ACCENTS).map(c => `<button class="swatch ${c === s.accent ? 'on' : ''}" style="background:${c}" data-act="accent" data-v="${c}" aria-label="Accent colour"></button>`).join('')}</div>
     </div>
@@ -1236,6 +1238,7 @@ const actions = {
   },
   'theme': async el => { state.settings.theme = el.dataset.v; await saveSettings(); applyTheme(); rerender(); },
   'style': async el => { state.settings.style = el.dataset.v; state.settings.accent = STYLES[el.dataset.v][0]; await saveSettings(); applyTheme(); rerender(); },
+  'pattern': async el => { state.settings.pattern = !(state.settings.pattern !== false); await saveSettings(); applyTheme(); rerender(); },
   'accent': async el => { state.settings.accent = el.dataset.v; await saveSettings(); applyTheme(); rerender(); },
   'export-csv': el => exportCSV(el.dataset.kind),
   'backup': () => backup($('#withPhotos').checked),
