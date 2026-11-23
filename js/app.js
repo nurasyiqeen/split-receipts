@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -964,7 +964,7 @@ async function imageSheet(spec, filename, text) {
   { onClose: () => setTimeout(() => URL.revokeObjectURL(url), 1000) });
   dlg.querySelector('#isave').onclick = () => download(filename, blob);
   dlg.querySelector('#ishare')?.addEventListener('click', async () => {
-    try { await navigator.share({ files: [file], text }); } catch (e) { if (e.name !== 'AbortError') download(filename, blob); }
+    try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') download(filename, blob); }
   });
 }
 // ----- group report (debts per person, one line per receipt, no items) -----
@@ -1067,7 +1067,7 @@ function reportSheet(groupId) {
   $d('#rps').onclick = () => download(fname(), blob);
   $d('#rpt').onclick = () => shareText(reportText(sel.group, range(), sel.who), sel.who ? person(sel.who).phone : '');
   $d('#rpx').onclick = async () => {
-    try { await navigator.share({ files: [new File([blob], fname(), { type: 'image/png' })], text: reportText(sel.group, range(), sel.who) }); }
+    try { await navigator.share({ files: [new File([blob], fname(), { type: 'image/png' })] }); }
     catch (e) { if (e.name !== 'AbortError') download(fname(), blob); }
   };
   draw();
