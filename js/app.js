@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.3.2';
+const VERSION = '1.3.3';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -1021,7 +1021,7 @@ function reportData(groupId, range, who) {
     .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.createdAt || 0) - (b.createdAt || 0));
   const pairs = new Map(); // "from|to|cur" -> {from, to, cur, total, lines}
   for (const r of rs) for (const d of S.receiptDebts(r)) {
-    if (who && d.from !== who) continue;
+    if (who && !who.includes(d.from)) continue;
     const key = `${d.from}|${d.to}|${d.currency}`;
     if (!pairs.has(key)) pairs.set(key, { from: d.from, to: d.to, cur: d.currency, total: 0, lines: [] });
     const p = pairs.get(key);
@@ -1041,9 +1041,10 @@ function reportImageSpec(groupId, range, who) {
   const totals = {};
   for (const p of pairs) totals[p.cur] = (totals[p.cur] || 0) + p.total;
   const single = who && pairs.length === 1 ? pairs[0] : null;
+  const whoNames = who ? who.map(imgName).join(', ') : '';
   return {
-    title: g ? g.name : who ? `${imgName(who)}` : 'All receipts',
-    subtitle: `${rangeLabel(range, receipts)}${g && who ? ` · ${imgName(who)}` : ''}`,
+    title: g ? g.name : who ? whoNames : 'All receipts',
+    subtitle: `${rangeLabel(range, receipts)}${g && who ? ` · ${whoNames}` : ''}`,
     big: pairs.length ? fmtMulti(totals) : 'Nothing owed',
     bigNote: single ? `${imgName(single.from)} owes ${imgName(single.to)} · ${single.lines.length} receipt${single.lines.length > 1 ? 's' : ''}`
       : `Total owed · ${receipts.length} receipt${receipts.length === 1 ? '' : 's'}`,
@@ -1074,7 +1075,7 @@ function rangeLabel(range, receipts) {
 }
 
 function reportSheet(groupId) {
-  let sel = { group: groupId, period: 'all', from: '', to: '', who: '' };
+  let sel = { group: groupId, period: 'all', from: '', to: '', who: null }; // who: null = everyone
   let blobs = [], urls = [];
   const dlg = sheet(`<h3>Report</h3>
     <div class="fields">
@@ -1082,9 +1083,9 @@ function reportSheet(groupId) {
       <label class="field"><span>Period</span><select id="rpp">
         <option value="all">All receipts</option>
         <option value="custom">Custom dates…</option></select></label>
-      <label class="field"><span>Show</span><select id="rpw"></select></label>
       <label class="field" id="rpf" hidden><span>From</span><input type="date" id="rpfrom"></label>
       <label class="field" id="rpt2" hidden><span>To</span><input type="date" id="rpto"></label>
+      <div class="field full"><span class="small muted" style="display:block;font-weight:600;margin-bottom:6px">Show</span><div class="chips" id="rpw"></div></div>
     </div>
     <div id="rpi" style="max-height:44vh;overflow:auto;margin-top:12px"></div>
     <p class="small muted" id="rpn" style="margin:6px 0 0" hidden></p>
@@ -1095,9 +1096,22 @@ function reportSheet(groupId) {
   const draw = async () => {
     const custom = sel.period === 'custom';
     $d('#rpf').hidden = !custom; $d('#rpt2').hidden = !custom;
-    const debtors = [...new Set(reportData(sel.group, range(), '').pairs.map(p => p.from))];
-    if (!debtors.includes(sel.who)) sel.who = '';
-    $d('#rpw').innerHTML = `<option value="">Everyone</option>${debtors.map(pid => `<option value="${pid}" ${pid === sel.who ? 'selected' : ''}>${esc(pname(pid))} only</option>`).join('')}`;
+    const debtors = [...new Set(reportData(sel.group, range(), null).pairs.map(p => p.from))];
+    if (sel.who) { sel.who = sel.who.filter(id => debtors.includes(id)); if (!sel.who.length || sel.who.length === debtors.length) sel.who = null; }
+    const isOn = id => !sel.who || sel.who.includes(id);
+    $d('#rpw').innerHTML = debtors.length ? `<button class="chip plain ${sel.who ? '' : 'on'}" data-w="__all">All</button>${debtors.map(pid => `<button class="chip ${isOn(pid) ? 'on' : ''}" style="--c:${person(pid).color}" data-w="${pid}">${avatar(pid)}${esc(pname(pid))}</button>`).join('')}`
+      : '<span class="small muted">No one owes anything in this period.</span>';
+    $d('#rpw').querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
+      const id = b.dataset.w;
+      if (id === '__all') sel.who = null; // select everyone
+      else {
+        const cur = new Set(sel.who || debtors);
+        cur.has(id) ? cur.delete(id) : cur.add(id);
+        if (!cur.size) return toast('Pick at least one person.');
+        sel.who = cur.size === debtors.length ? null : debtors.filter(x => cur.has(x));
+      }
+      draw();
+    });
     blobs = await makeImages(reportImageSpec(sel.group, range(), sel.who));
     urls.forEach(u => URL.revokeObjectURL(u));
     urls = blobs.map(b => URL.createObjectURL(b));
@@ -1108,7 +1122,7 @@ function reportSheet(groupId) {
     $d('#rpx').textContent = blobs.length > 1 ? `Share ${blobs.length} images` : 'Share image';
     $d('#rpx').hidden = !navigator.canShare?.({ files: asFiles(blobs, 'r.png') });
   };
-  const fname = () => { const r = range(); return `report-${slug(state.groups.find(g => g.id === sel.group)?.name || 'all')}${r.from || r.to ? `-${r.from || 'start'}-to-${r.to || 'now'}` : ''}${sel.who ? '-' + slug(pname(sel.who)) : ''}.png`; };
+  const fname = () => { const r = range(); return `report-${slug(state.groups.find(g => g.id === sel.group)?.name || 'all')}${r.from || r.to ? `-${r.from || 'start'}-to-${r.to || 'now'}` : ''}${sel.who ? '-' + slug(sel.who.map(pname).join('-')) : ''}.png`; };
   $d('#rpg').onchange = e => { sel.group = e.target.value; draw(); };
   $d('#rpp').onchange = e => {
     sel.period = e.target.value;
@@ -1116,9 +1130,8 @@ function reportSheet(groupId) {
   };
   $d('#rpfrom').onchange = e => { sel.from = e.target.value; draw(); };
   $d('#rpto').onchange = e => { sel.to = e.target.value; draw(); };
-  $d('#rpw').onchange = e => { sel.who = e.target.value; draw(); };
   $d('#rps').onclick = () => saveAll(blobs, fname());
-  $d('#rpt').onclick = () => shareText(reportText(sel.group, range(), sel.who), sel.who ? person(sel.who).phone : '');
+  $d('#rpt').onclick = () => shareText(reportText(sel.group, range(), sel.who), sel.who?.length === 1 ? person(sel.who[0]).phone : '');
   $d('#rpx').onclick = () => shareAll(blobs, fname());
   draw();
 }
