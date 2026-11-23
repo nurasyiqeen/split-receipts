@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -855,64 +855,107 @@ function addExistingSheet(gid) {
 const imgName = id => (id === ME ? (state.settings.myName || 'Me') : pname(id));
 function shareLineLabel(l) { return `${l.name}${l.units ? ` ×${l.units}` : l.sharedWith > 1 ? ` (1/${l.sharedWith})` : ''}`; }
 
-// Draws a clean, receipt-style summary card and returns a PNG blob.
-async function makeImage({ title, subtitle, big, bigNote, sections, footer }) {
-  const W = 1080, P = 64, accent = state.settings.accent;
+// Draws a clean, receipt-style summary and returns one PNG blob per page.
+// Pages are at most 1080 x 1500 px: WhatsApp (even in HD) shrinks images by their longest side,
+// so one very tall image ends up blurry while several shorter pages stay sharp.
+const PAGE_W = 1080, PAGE_MAX_H = 1500;
+async function makeImages({ title, subtitle, big, bigNote, sections, footer }) {
+  const W = PAGE_W, P = 64, accent = state.settings.accent;
+  const accent2 = state.settings.style === 'lively' && LIVELY[accent] ? LIVELY[accent] : accent;
   const F = (w, px) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
   const ink = '#1b1f1d', ink2 = '#5d6661', line = '#e3e6e2';
-  const c = document.createElement('canvas');
-  const ctx = c.getContext('2d');
-  const fit = (text, max) => { text = String(text); if (ctx.measureText(text).width <= max) return text; while (text.length > 1 && ctx.measureText(text + '…').width > max) text = text.slice(0, -1); return text + '…'; };
-  const ops = []; let y = 0;
-  const block = (h, fn) => { const top = y; ops.push(() => fn(top)); y += h; };
+  const mc = document.createElement('canvas').getContext('2d');
+  const fitWith = (ctx, text, max) => { text = String(text); if (ctx.measureText(text).width <= max) return text; while (text.length > 1 && ctx.measureText(text + '…').width > max) text = text.slice(0, -1); return text + '…'; };
 
-  block(bigNote ? 340 : 300, t => {
-    const grad = ctx.createLinearGradient(0, t, W, t + 340);
-    grad.addColorStop(0, accent); grad.addColorStop(1, state.settings.style === 'lively' && LIVELY[accent] ? LIVELY[accent] : accent);
-    ctx.fillStyle = grad; ctx.fillRect(0, t, W, bigNote ? 340 : 300);
+  // ---- blocks (height + painter) ----
+  const bigH = bigNote ? 340 : 300;
+  const headerBig = { h: bigH + 24, draw(ctx, t) {
+    const grad = ctx.createLinearGradient(0, t, W, t + 340); grad.addColorStop(0, accent); grad.addColorStop(1, accent2);
+    ctx.fillStyle = grad; ctx.fillRect(0, t, W, bigH);
     ctx.fillStyle = '#fff';
-    ctx.font = F(700, 54); ctx.fillText(fit(title, W - 2 * P), P, t + 96);
-    ctx.globalAlpha = 0.9; ctx.font = F(500, 32); ctx.fillText(fit(subtitle, W - 2 * P), P, t + 146); ctx.globalAlpha = 1;
+    ctx.font = F(700, 54); ctx.fillText(fitWith(ctx, title, W - 2 * P), P, t + 96);
+    ctx.globalAlpha = 0.9; ctx.font = F(500, 32); ctx.fillText(fitWith(ctx, subtitle, W - 2 * P), P, t + 146); ctx.globalAlpha = 1;
     ctx.font = F(800, 80); ctx.fillText(big, P, t + 250);
-    if (bigNote) { ctx.globalAlpha = 0.9; ctx.font = F(500, 32); ctx.fillText(fit(bigNote, W - 2 * P), P, t + 305); ctx.globalAlpha = 1; }
-  });
-  y += 24;
-  for (const s of sections) {
-    block(s.heading ? 84 : 20, t => {
-      if (!s.heading) return;
-      let x = P;
-      if (s.color) {
-        ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(P + 28, t + 46, 28, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.font = F(700, 24); ctx.textAlign = 'center'; ctx.fillText(initials(s.heading), P + 28, t + 55); ctx.textAlign = 'left';
-        x = P + 76;
-      }
-      ctx.font = F(700, 38); ctx.textAlign = 'right'; ctx.fillStyle = ink;
-      const amtW = s.amount ? ctx.measureText(s.amount).width : 0;
-      if (s.amount) ctx.fillText(s.amount, W - P, t + 59);
-      ctx.textAlign = 'left';
-      ctx.font = F(650, 38); const name = fit(s.heading, W - P - x - amtW - 140); ctx.fillText(name, x, t + 59);
-      if (s.note) { const nx = x + ctx.measureText(name).width + 14; ctx.font = F(500, 26); ctx.fillStyle = ink2; ctx.fillText(s.note, nx, t + 59); }
-    });
-    for (const [l, r, strong] of s.lines) block(48, t => {
-      ctx.fillStyle = strong ? ink : ink2;
-      ctx.font = F(strong ? 650 : 400, 30);
-      ctx.textAlign = 'right'; const rw = ctx.measureText(r).width; ctx.fillText(r, W - P, t + 34);
-      ctx.textAlign = 'left'; ctx.fillText(fit(l, W - 2 * P - rw - 110 - (s.color ? 76 : 0)), P + (s.color ? 76 : 0), t + 34);
-    });
-    block(36, t => { ctx.strokeStyle = line; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(P, t + 18); ctx.lineTo(W - P, t + 18); ctx.stroke(); });
-  }
-  block(footer ? 130 : 90, t => {
-    ctx.fillStyle = ink2; ctx.font = F(400, 26);
+    if (bigNote) { ctx.globalAlpha = 0.9; ctx.font = F(500, 32); ctx.fillText(fitWith(ctx, bigNote, W - 2 * P), P, t + 305); ctx.globalAlpha = 1; }
+  } };
+  const headerSmall = (page, pages) => ({ h: 140, draw(ctx, t) {
+    const grad = ctx.createLinearGradient(0, t, W, t + 120); grad.addColorStop(0, accent); grad.addColorStop(1, accent2);
+    ctx.fillStyle = grad; ctx.fillRect(0, t, W, 116);
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+    const tail = `  ·  continued ${page}/${pages}`;
+    ctx.font = F(500, 28); const tw = ctx.measureText(tail).width;
+    ctx.font = F(700, 40); const tt = fitWith(ctx, title, W - 2 * P - tw); ctx.fillText(tt, P, t + 74);
+    const ttw = ctx.measureText(tt).width;
+    ctx.font = F(500, 28); ctx.globalAlpha = 0.9; ctx.fillText(tail, P + ttw, t + 74); ctx.globalAlpha = 1;
+  } });
+  const heading = (s, cont) => ({ h: s.heading ? 84 : 20, kind: 'heading', sec: s, draw(ctx, t) {
+    if (!s.heading) return;
+    let x = P;
+    if (s.color) {
+      ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(P + 28, t + 46, 28, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = F(700, 24); ctx.textAlign = 'center'; ctx.fillText(initials(s.heading), P + 28, t + 55); ctx.textAlign = 'left';
+      x = P + 76;
+    }
+    ctx.font = F(700, 38); ctx.textAlign = 'right'; ctx.fillStyle = ink;
+    const amtW = s.amount ? ctx.measureText(s.amount).width : 0;
+    if (s.amount) ctx.fillText(s.amount, W - P, t + 59);
+    ctx.textAlign = 'left';
+    ctx.font = F(650, 38); const name = fitWith(ctx, s.heading, W - P - x - amtW - 160); ctx.fillText(name, x, t + 59);
+    const note = cont ? `${s.note ? s.note + ' · ' : ''}continued` : s.note;
+    if (note) { const nx = x + ctx.measureText(name).width + 14; ctx.font = F(500, 26); ctx.fillStyle = ink2; ctx.fillText(note, nx, t + 59); }
+  } });
+  const lineBlock = (s, [l, r, strong]) => ({ h: 48, kind: 'line', sec: s, draw(ctx, t) {
+    ctx.fillStyle = strong ? ink : ink2;
+    ctx.font = F(strong ? 650 : 400, 30);
+    ctx.textAlign = 'right'; const rw = ctx.measureText(r).width; ctx.fillText(r, W - P, t + 34);
+    ctx.textAlign = 'left'; ctx.fillText(fitWith(ctx, l, W - 2 * P - rw - 110 - (s.color ? 76 : 0)), P + (s.color ? 76 : 0), t + 34);
+  } });
+  const divider = { h: 36, kind: 'divider', draw(ctx, t) { ctx.strokeStyle = line; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(P, t + 18); ctx.lineTo(W - P, t + 18); ctx.stroke(); } };
+  const footerBlock = { h: footer ? 130 : 90, draw(ctx, t) {
+    ctx.fillStyle = ink2; ctx.font = F(400, 26); ctx.textAlign = 'left';
     let yy = t + 40;
-    if (footer) { ctx.fillText(fit(footer, W - 2 * P), P, yy); yy += 46; }
+    if (footer) { ctx.fillText(fitWith(ctx, footer, W - 2 * P), P, yy); yy += 46; }
     ctx.fillStyle = accent; ctx.font = F(650, 26); ctx.fillText('Split Receipts', P, yy);
-  });
+  } };
+  const PAGE_NO_H = 64; // room for "Page x of y" at the bottom of every page when there are several
 
-  c.width = W; c.height = y;
-  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, y);
-  ctx.textBaseline = 'alphabetic';
-  for (const op of ops) op();
-  return new Promise(res => c.toBlob(res, 'image/png'));
+  const body = [];
+  for (const s of sections) { body.push(heading(s)); for (const l of s.lines) body.push(lineBlock(s, l)); body.push(divider); }
+
+  // ---- paginate ----
+  const pages = [];
+  let page = { blocks: [headerBig], h: headerBig.h };
+  const room = () => PAGE_MAX_H - PAGE_NO_H - page.h;
+  const newPage = () => { pages.push(page); page = { blocks: [null], h: 140, cont: true }; }; // null = small header, filled in later
+  for (let i = 0; i < body.length; i++) {
+    const b = body[i];
+    const need = b.kind === 'heading' && body[i + 1]?.kind === 'line' ? b.h + 48 : b.h; // keep a heading with its first line
+    if (need > room() && page.blocks.length > 1) {
+      newPage();
+      if (b.kind === 'line') { const hb = heading(b.sec, true); page.blocks.push(hb); page.h += hb.h; }
+      if (b.kind === 'divider') continue; // no divider at the top of a page
+    }
+    page.blocks.push(b); page.h += b.h;
+  }
+  if (footerBlock.h > room()) newPage();
+  page.blocks.push(footerBlock); page.h += footerBlock.h;
+  pages.push(page);
+
+  // ---- paint ----
+  const total = pages.length;
+  return Promise.all(pages.map((pg, i) => {
+    const c = document.createElement('canvas');
+    c.width = W; c.height = pg.h + (total > 1 ? PAGE_NO_H : 0);
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+    let y = 0;
+    for (const b of pg.blocks) {
+      const blk = b || headerSmall(i + 1, total);
+      blk.draw(ctx, y); y += blk.h;
+    }
+    if (total > 1) { ctx.fillStyle = '#9aa29e'; ctx.font = F(600, 24); ctx.textAlign = 'right'; ctx.fillText(`Page ${i + 1} of ${total}`, W - P, c.height - 28); ctx.textAlign = 'left'; }
+    return new Promise(res => c.toBlob(res, 'image/png'));
+  }));
 }
 
 function receiptImageSpec(r) {
@@ -952,20 +995,25 @@ function friendImageSpec(fid) {
     sections: sections.length ? sections : [{ heading: '', lines: [] }] };
 }
 
-async function imageSheet(spec, filename, text) {
-  const blob = await makeImage(spec);
-  const url = URL.createObjectURL(blob);
-  const file = new File([blob], filename, { type: 'image/png' });
-  const canShare = !!navigator.canShare?.({ files: [file] });
-  const dlg = sheet(`<h3>Image</h3>
-    <img src="${url}" alt="Split summary image" style="width:100%;max-height:58vh;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line)">
-    <p class="small muted" style="margin:8px 0">Tip: you can also long-press the image to save or copy it.</p>
-    <div class="btns"><button class="btn" id="isave">Save image</button>${canShare ? '<button class="btn primary" id="ishare">Share</button>' : ''}</div>`,
-  { onClose: () => setTimeout(() => URL.revokeObjectURL(url), 1000) });
-  dlg.querySelector('#isave').onclick = () => download(filename, blob);
-  dlg.querySelector('#ishare')?.addEventListener('click', async () => {
-    try { await navigator.share({ files: [file] }); } catch (e) { if (e.name !== 'AbortError') download(filename, blob); }
-  });
+const pageName = (filename, i, n) => n > 1 ? filename.replace(/\.png$/, `-${i + 1}of${n}.png`) : filename;
+const asFiles = (blobs, filename) => blobs.map((b, i) => new File([b], pageName(filename, i, blobs.length), { type: 'image/png' }));
+function saveAll(blobs, filename) { blobs.forEach((b, i) => setTimeout(() => download(pageName(filename, i, blobs.length), b), i * 400)); }
+async function shareAll(blobs, filename) {
+  try { await navigator.share({ files: asFiles(blobs, filename) }); } catch (e) { if (e.name !== 'AbortError') saveAll(blobs, filename); }
+}
+const previewHtml = urls => urls.map(u => `<img src="${u}" alt="Image page" style="width:100%;display:block;border-radius:12px;background:#fff;border:1px solid var(--line);margin-bottom:8px">`).join('');
+
+async function imageSheet(spec, filename) {
+  const blobs = await makeImages(spec);
+  const urls = blobs.map(b => URL.createObjectURL(b));
+  const canShare = !!navigator.canShare?.({ files: asFiles(blobs, filename) });
+  const dlg = sheet(`<h3>Image${blobs.length > 1 ? `s · ${blobs.length} pages` : ''}</h3>
+    <div style="max-height:56vh;overflow:auto">${previewHtml(urls)}</div>
+    <p class="small muted" style="margin:8px 0">${blobs.length > 1 ? 'Split into pages so they stay sharp in WhatsApp. ' : ''}You can also long-press an image to save or copy it.</p>
+    <div class="btns"><button class="btn" id="isave">Save image${blobs.length > 1 ? 's' : ''}</button>${canShare ? '<button class="btn primary" id="ishare">Share</button>' : ''}</div>`,
+  { onClose: () => setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 1000) });
+  dlg.querySelector('#isave').onclick = () => saveAll(blobs, filename);
+  dlg.querySelector('#ishare')?.addEventListener('click', () => shareAll(blobs, filename));
 }
 // ----- group report (debts per person, one line per receipt, no items) -----
 function reportData(groupId, range, who) {
@@ -1027,7 +1075,7 @@ function rangeLabel(range, receipts) {
 
 function reportSheet(groupId) {
   let sel = { group: groupId, period: 'all', from: '', to: '', who: '' };
-  let blob, url;
+  let blobs = [], urls = [];
   const dlg = sheet(`<h3>Report</h3>
     <div class="fields">
       <label class="field full"><span>Group</span><select id="rpg"><option value="">All receipts</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>
@@ -1038,9 +1086,10 @@ function reportSheet(groupId) {
       <label class="field" id="rpf" hidden><span>From</span><input type="date" id="rpfrom"></label>
       <label class="field" id="rpt2" hidden><span>To</span><input type="date" id="rpto"></label>
     </div>
-    <img id="rpi" alt="Report preview" style="width:100%;max-height:46vh;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line);margin-top:12px">
+    <div id="rpi" style="max-height:44vh;overflow:auto;margin-top:12px"></div>
+    <p class="small muted" id="rpn" style="margin:6px 0 0" hidden></p>
     <div class="btns" style="margin-top:12px"><button class="btn" id="rps">Save image</button><button class="btn" id="rpt">WhatsApp text</button><button class="btn primary" id="rpx" hidden>Share image</button></div>`,
-  { onClose: () => url && URL.revokeObjectURL(url) });
+  { onClose: () => urls.forEach(u => URL.revokeObjectURL(u)) });
   const $d = q => dlg.querySelector(q);
   const range = () => sel.period === 'custom' ? { from: sel.from, to: sel.to } : { from: '', to: '' };
   const draw = async () => {
@@ -1049,11 +1098,15 @@ function reportSheet(groupId) {
     const debtors = [...new Set(reportData(sel.group, range(), '').pairs.map(p => p.from))];
     if (!debtors.includes(sel.who)) sel.who = '';
     $d('#rpw').innerHTML = `<option value="">Everyone</option>${debtors.map(pid => `<option value="${pid}" ${pid === sel.who ? 'selected' : ''}>${esc(pname(pid))} only</option>`).join('')}`;
-    blob = await makeImage(reportImageSpec(sel.group, range(), sel.who));
-    if (url) URL.revokeObjectURL(url);
-    url = URL.createObjectURL(blob);
-    $d('#rpi').src = url;
-    $d('#rpx').hidden = !navigator.canShare?.({ files: [new File([blob], 'r.png', { type: 'image/png' })] });
+    blobs = await makeImages(reportImageSpec(sel.group, range(), sel.who));
+    urls.forEach(u => URL.revokeObjectURL(u));
+    urls = blobs.map(b => URL.createObjectURL(b));
+    $d('#rpi').innerHTML = previewHtml(urls);
+    $d('#rpn').hidden = blobs.length < 2;
+    $d('#rpn').textContent = `${blobs.length} pages, so each stays sharp in WhatsApp.`;
+    $d('#rps').textContent = blobs.length > 1 ? 'Save images' : 'Save image';
+    $d('#rpx').textContent = blobs.length > 1 ? `Share ${blobs.length} images` : 'Share image';
+    $d('#rpx').hidden = !navigator.canShare?.({ files: asFiles(blobs, 'r.png') });
   };
   const fname = () => { const r = range(); return `report-${slug(state.groups.find(g => g.id === sel.group)?.name || 'all')}${r.from || r.to ? `-${r.from || 'start'}-to-${r.to || 'now'}` : ''}${sel.who ? '-' + slug(pname(sel.who)) : ''}.png`; };
   $d('#rpg').onchange = e => { sel.group = e.target.value; draw(); };
@@ -1064,12 +1117,9 @@ function reportSheet(groupId) {
   $d('#rpfrom').onchange = e => { sel.from = e.target.value; draw(); };
   $d('#rpto').onchange = e => { sel.to = e.target.value; draw(); };
   $d('#rpw').onchange = e => { sel.who = e.target.value; draw(); };
-  $d('#rps').onclick = () => download(fname(), blob);
+  $d('#rps').onclick = () => saveAll(blobs, fname());
   $d('#rpt').onclick = () => shareText(reportText(sel.group, range(), sel.who), sel.who ? person(sel.who).phone : '');
-  $d('#rpx').onclick = async () => {
-    try { await navigator.share({ files: [new File([blob], fname(), { type: 'image/png' })] }); }
-    catch (e) { if (e.name !== 'AbortError') download(fname(), blob); }
-  };
+  $d('#rpx').onclick = () => shareAll(blobs, fname());
   draw();
 }
 
