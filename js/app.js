@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.3.3';
+const VERSION = '1.3.4';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -858,7 +858,7 @@ function shareLineLabel(l) { return `${l.name}${l.units ? ` ×${l.units}` : l.sh
 // Draws a clean, receipt-style summary and returns one PNG blob per page.
 // Pages are at most 1080 x 1500 px: WhatsApp (even in HD) shrinks images by their longest side,
 // so one very tall image ends up blurry while several shorter pages stay sharp.
-const PAGE_W = 1080, PAGE_MAX_H = 1500;
+const PAGE_W = 1080, PAGE_MAX_H = Infinity; // one image, however long
 async function makeImages({ title, subtitle, big, bigNote, sections, footer }) {
   const W = PAGE_W, P = 64, accent = state.settings.accent;
   const accent2 = state.settings.style === 'lively' && LIVELY[accent] ? LIVELY[accent] : accent;
@@ -1083,9 +1083,10 @@ function reportSheet(groupId) {
       <label class="field"><span>Period</span><select id="rpp">
         <option value="all">All receipts</option>
         <option value="custom">Custom dates…</option></select></label>
+      <div class="field"><span class="small muted" style="display:block;font-weight:600;margin-bottom:6px;font-size:12.5px">Show</span>
+        <details class="multi" id="rpwd"><summary id="rpws">Everyone</summary><div class="multi-list" id="rpw"></div></details></div>
       <label class="field" id="rpf" hidden><span>From</span><input type="date" id="rpfrom"></label>
       <label class="field" id="rpt2" hidden><span>To</span><input type="date" id="rpto"></label>
-      <div class="field full"><span class="small muted" style="display:block;font-weight:600;margin-bottom:6px">Show</span><div class="chips" id="rpw"></div></div>
     </div>
     <div id="rpi" style="max-height:44vh;overflow:auto;margin-top:12px"></div>
     <p class="small muted" id="rpn" style="margin:6px 0 0" hidden></p>
@@ -1099,15 +1100,16 @@ function reportSheet(groupId) {
     const debtors = [...new Set(reportData(sel.group, range(), null).pairs.map(p => p.from))];
     if (sel.who) { sel.who = sel.who.filter(id => debtors.includes(id)); if (!sel.who.length || sel.who.length === debtors.length) sel.who = null; }
     const isOn = id => !sel.who || sel.who.includes(id);
-    $d('#rpw').innerHTML = debtors.length ? `<button class="chip plain ${sel.who ? '' : 'on'}" data-w="__all">All</button>${debtors.map(pid => `<button class="chip ${isOn(pid) ? 'on' : ''}" style="--c:${person(pid).color}" data-w="${pid}">${avatar(pid)}${esc(pname(pid))}</button>`).join('')}`
-      : '<span class="small muted">No one owes anything in this period.</span>';
-    $d('#rpw').querySelectorAll('[data-w]').forEach(b => b.onclick = () => {
+    $d('#rpws').textContent = !debtors.length ? 'No one' : !sel.who ? 'Everyone' : sel.who.length <= 2 ? sel.who.map(pname).join(', ') : `${sel.who.length} people`;
+    const row = (id, label, on, av = '') => `<label class="multi-row"><input type="checkbox" data-w="${id}" ${on ? 'checked' : ''}>${av}<span class="grow ellipsis">${label}</span></label>`;
+    $d('#rpw').innerHTML = row('__all', 'Everyone', !sel.who) + debtors.map(pid => row(pid, esc(pname(pid)), isOn(pid), avatar(pid, 'sm'))).join('');
+    $d('#rpw').querySelectorAll('[data-w]').forEach(b => b.onchange = () => {
       const id = b.dataset.w;
       if (id === '__all') sel.who = null; // select everyone
       else {
         const cur = new Set(sel.who || debtors);
         cur.has(id) ? cur.delete(id) : cur.add(id);
-        if (!cur.size) return toast('Pick at least one person.');
+        if (!cur.size) { b.checked = true; return toast('Pick at least one person.'); }
         sel.who = cur.size === debtors.length ? null : debtors.filter(x => cur.has(x));
       }
       draw();
@@ -1123,6 +1125,7 @@ function reportSheet(groupId) {
     $d('#rpx').hidden = !navigator.canShare?.({ files: asFiles(blobs, 'r.png') });
   };
   const fname = () => { const r = range(); return `report-${slug(state.groups.find(g => g.id === sel.group)?.name || 'all')}${r.from || r.to ? `-${r.from || 'start'}-to-${r.to || 'now'}` : ''}${sel.who ? '-' + slug(sel.who.map(pname).join('-')) : ''}.png`; };
+  dlg.addEventListener('click', e => { const d = $d('#rpwd'); if (d.open && !d.contains(e.target)) d.open = false; });
   $d('#rpg').onchange = e => { sel.group = e.target.value; draw(); };
   $d('#rpp').onchange = e => {
     sel.period = e.target.value;

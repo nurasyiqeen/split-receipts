@@ -374,3 +374,20 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
 }
 @media (prefers-color-scheme: dark) { :root[data-style="lively"]:not([data-theme="light"]) body::after { opacity: .26; } }
 :root[data-style="lively"][data-theme="dark"] body::after { opacity: .26; }
+
+/* compact multi-select (report "Show") */
+.multi { position: relative; }
+.multi summary {
+  list-style: none; cursor: pointer; padding: 11px 38px 11px 13px; border-radius: 12px; min-height: 46px; border: 1.5px solid transparent;
+  background: var(--surface-3) var(--chev) no-repeat right 12px center / 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.multi summary::-webkit-details-marker { display: none; }
+.multi[open] summary { border-color: var(--accent); }
+.multi-list {
+  position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; min-width: 100%; width: max-content; max-width: 260px; max-height: 260px; overflow: auto;
+  background: var(--sheet); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lift); padding: 6px;
+}
+.multi-row { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 10px; cursor: pointer; font-size: 15px; }
+.multi-row:active { background: var(--surface-2); }
+.multi-row input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
+.multi-row:first-child { border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; margin-bottom: 4px; font-weight: 700; }
