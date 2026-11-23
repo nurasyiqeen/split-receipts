@@ -107,8 +107,10 @@ function applyTheme() {
   const root = document.documentElement;
   if (theme === 'auto') delete root.dataset.theme; else root.dataset.theme = theme;
   root.style.setProperty('--accent', accent);
-  document.querySelector('meta[name=theme-color]')?.setAttribute('content', accent);
+  // Status bar blends with the page background in both light and dark.
+  requestAnimationFrame(() => document.querySelector('meta[name=theme-color]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--bg').trim()));
 }
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme());
 
 // ---------- balances ----------
 const balances = () => S.pairBalances(state.receipts, state.payments);
