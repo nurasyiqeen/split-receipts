@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.2.2';
+const VERSION = '1.3.0';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -257,7 +257,8 @@ function receiptsPage() {
 // ----- new receipt / scanning -----
 function newPage() {
   if (state.scanning) {
-    return { title: 'Reading receipt', tab: 'new', html: `<div class="card scan-zone"><div class="spinner"></div><p><strong>Reading your receipt…</strong></p><p class="muted small">${esc(state.scanning)}</p></div>` };
+    return { title: 'Reading receipt', tab: 'new', html: `<div class="card scan-zone"><div class="spinner"></div><p><strong>Reading your receipt…</strong></p><p class="muted small" id="scanstatus">${esc(state.scanning)}</p>
+      <button class="btn block" data-act="scan-cancel" style="margin-top:8px">${icon('pen', 'width=20 height=20')} Stop and type it in by hand</button></div>` };
   }
   const noKey = !state.settings.apiKey;
   const html = `
@@ -320,22 +321,36 @@ async function handlePhoto(file) {
   }
   await runScan();
 }
+let scanCtl = null;
 async function runScan() {
   state.scanError = null;
-  state.scanning = 'This usually takes a few seconds.';
+  scanCtl = new AbortController();
+  const started = Date.now();
+  let status = 'This usually takes a few seconds.';
+  const show = () => {
+    const secs = Math.round((Date.now() - started) / 1000);
+    state.scanning = secs >= 4 ? `${status} · ${secs}s` : status;
+    const el = document.getElementById('scanstatus'); if (el) el.textContent = state.scanning;
+  };
+  state.scanning = status;
   go('#/new');
+  const tick = setInterval(show, 1000);
   try {
     const data = await scanWithFallback({ apiKey: state.settings.apiKey, model: state.settings.model, imageBase64: await blobToBase64(state.draftPhoto), mimeType: state.draftPhoto.type || 'image/jpeg' },
-      (m, round) => { state.scanning = m ? (round ? `Busy, retrying (${m})…` : `Using ${m}…`) : 'Google is busy, waiting a moment…'; if (location.hash === '#/new') rerender(); });
-    state.scanning = null;
+      (m, round) => { status = m ? (round || m !== state.settings.model ? `Google is busy, trying ${m}…` : `Reading with ${m}…`) : 'Everything is busy, waiting a moment…'; show(); },
+      scanCtl.signal);
     if (!data.items.length) throw new Error("No items found. Make sure the whole receipt is in the photo and it's in focus.");
+    state.scanning = null;
     startDraft(data, true);
   } catch (e) {
     state.scanning = null;
-    state.scanError = e.status === 400 && /API key/i.test(e.message) ? 'Your API key was rejected. Check it in Settings.' :
-      e.status === 429 ? 'Free limit reached for now. Wait a minute and try again, or enter it by hand.' : (e.message || 'Something went wrong.');
+    if (e.status === 'cancelled') { startDraft(null, true); return; }
+    state.scanError = e.status === 400 && /API key/i.test(e.message) ? 'Your API key was rejected. Check it in Settings.' : (e.message || 'Something went wrong.');
     go('#/new');
     rerender();
+  } finally {
+    clearInterval(tick);
+    scanCtl = null;
   }
 }
 
@@ -1072,7 +1087,7 @@ function settingsPage() {
       <div class="btns"><button class="btn sm primary" data-act="save-key">Save key</button><button class="btn sm" data-act="test-key">Test</button></div>
       <p class="small muted" style="margin:0">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. It stays on this phone and is only sent to Google when you scan.</p>
       <label class="field"><span>Model</span><select data-setting="model">${MODELS.map(([m, l]) => `<option value="${m}" ${m === s.model ? 'selected' : ''}>${l}</option>`).join('')}${known ? '' : `<option value="${esc(s.model)}" selected>${esc(s.model)}</option>`}<option value="__custom">Other…</option></select></label>
-      <p class="small muted" style="margin:0">If the chosen model is busy, the app automatically tries the others.</p>
+      <p class="small muted" style="margin:0">If the chosen model is busy, the app races the others and keeps trying for up to 90 seconds. If Google's free tier is often busy for you, turn on billing for this key in AI Studio. It costs a fraction of a sen per scan and is much less likely to be busy.</p>
     </div>
     <div class="card stack">
       <h2>You</h2>
@@ -1165,6 +1180,7 @@ const actions = {
   'manual': () => startDraft(null, false),
   'manual-photo': () => { state.scanError = null; startDraft(null, true); },
   'rescan': () => runScan(),
+  'scan-cancel': () => scanCtl?.abort(),
   'draft-continue': () => go('#/edit'),
   'draft-discard': async () => { await clearDraft(); rerender(); },
   'cancel-edit': async el => {

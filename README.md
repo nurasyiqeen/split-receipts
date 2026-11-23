@@ -26,7 +26,7 @@ All data stays on your phone (IndexedDB). There is no server and no account.
 2. On your phone, open the link and choose **Add to Home screen**.
 3. Get a free Gemini API key at <https://aistudio.google.com/apikey> and paste it into **Settings → Receipt scanning**.
 
-The default model is `gemini-flash-lite-latest`. It read all the test receipts correctly in about 2 seconds and has the most generous free quota. If Google is busy, the app automatically tries other Flash/Flash-Lite models and retries a few times.
+The default model is `gemini-flash-lite-latest`. It read all the test receipts correctly in about 2 seconds and has the most generous free quota. If Google is busy, the app races several models at once (Gemini Flash-Lite, Flash, then Gemma 4) and keeps trying for up to 90 seconds; you can stop at any time and type the receipt in by hand. For fewer busy errors, enable billing on the API key (a fraction of a sen per scan).
 
 ## Code
 

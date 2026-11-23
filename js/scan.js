@@ -2,9 +2,12 @@
 
 // Flash-Lite read all sample receipts correctly, is fast, and has the most generous free quota.
 export const DEFAULT_MODEL = 'gemini-flash-lite-latest';
-export const FALLBACK_MODELS = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
-const RETRY_DELAYS = [0, 2000, 5000]; // Gemini 'high demand' errors are brief, so retry in rounds
-const REQUEST_TIMEOUT = 45000;
+// Separate models have separate capacity, so when one is busy another often isn't.
+// Gemma 4 is slower but runs on its own capacity, so it comes last.
+export const FALLBACK_MODELS = ['gemini-flash-lite-latest', 'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-flash-latest', 'gemma-4-26b-a4b-it', 'gemma-4-31b-it'];
+const REQUEST_TIMEOUT = 45000;   // per request (Gemma can take ~30s)
+const PATIENCE = 90000;          // keep trying this long in total
+const STAGGER = 1200;            // start the next model this soon if the current one hasn't answered
 
 const SCHEMA = {
   type: 'OBJECT',
@@ -85,39 +88,71 @@ export async function scanReceipt({ apiKey, model = DEFAULT_MODEL, imageBase64, 
   return normalize(data);
 }
 
-// Try the chosen model, then fall back to others if busy or unavailable; repeat a few rounds with
-// short pauses because overload errors usually clear within seconds.
-export async function scanWithFallback(opts, onAttempt) {
+// Race the models: start one, and start the next after a short stagger (or right away if one fails).
+// The first good answer wins and the rest are cancelled. If every model is busy, wait a bit and
+// go again, until PATIENCE runs out or the caller cancels.
+export async function scanWithFallback(opts, onAttempt, outerSignal) {
   let models = [...new Set([opts.model || DEFAULT_MODEL, ...FALLBACK_MODELS])];
-  let lastErr;
-  for (let round = 0; round < RETRY_DELAYS.length; round++) {
-    if (RETRY_DELAYS[round]) { onAttempt?.(null, round); await new Promise(r => setTimeout(r, RETRY_DELAYS[round])); }
-    for (const model of models) {
-      try {
-        onAttempt?.(model, round);
-        const r = await withTimeout(signal => scanReceipt({ ...opts, model, signal }));
-        r.model = model;
-        return r;
-      } catch (e) {
-        lastErr = e;
-        if (e.status === 404) { models = models.filter(m => m !== model); continue; } // retired model: skip for good
-        if (![429, 500, 503, 504, 'timeout'].includes(e.status)) throw e;
-      }
+  const deadline = Date.now() + PATIENCE;
+  let lastErr, round = 0;
+  while (models.length) {
+    if (outerSignal?.aborted) throw cancelled();
+    try {
+      return await race(models, opts, (m) => onAttempt?.(m, round), outerSignal);
+    } catch (errs) {
+      const list = errs.errors || [errs];
+      if (outerSignal?.aborted) throw cancelled();
+      const fatal = list.find(e => [400, 401, 403].includes(e.status));
+      if (fatal) throw fatal;
+      const gone = new Set(list.filter(e => e.status === 404).map(e => e.model));
+      models = models.filter(m => !gone.has(m));
+      lastErr = list.find(e => e.status === 503) || list.find(e => e.status === 429) || list[0];
     }
-    if (!models.length) break;
+    round++;
+    const wait = Math.min(2000 * round, 8000);
+    if (Date.now() + wait > deadline) break;
+    onAttempt?.(null, round);
+    await sleep(wait, outerSignal);
   }
-  if (lastErr?.status === 503 || lastErr?.status === 'timeout') lastErr.message = 'Google\'s scanner is very busy right now. Please try again in a minute.';
-  throw lastErr;
+  const err = new Error(lastErr?.status === 429
+    ? 'Free limit reached for now. Wait a minute and try again.'
+    : 'Google\'s free scanner is overloaded right now. Try again in a few minutes, or type it in by hand.');
+  err.status = lastErr?.status || 503;
+  throw err;
 }
 
-async function withTimeout(fn) {
-  const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT);
-  try { return await fn(ctl.signal); } catch (e) {
-    if (e.name === 'AbortError') { const err = new Error('Request timed out'); err.status = 'timeout'; throw err; }
-    throw e;
-  } finally { clearTimeout(t); }
+function race(models, opts, onStart, outerSignal) {
+  return new Promise((resolve, reject) => {
+    const ctls = [], errors = [];
+    let next = 0, done = false, timer;
+    const finish = () => { done = true; clearTimeout(timer); ctls.forEach(c => c.abort()); };
+    const onOuter = () => { finish(); reject(cancelled()); };
+    outerSignal?.addEventListener('abort', onOuter, { once: true });
+    const launch = () => {
+      if (done || next >= models.length) return;
+      const model = models[next++];
+      const ctl = new AbortController(); ctls.push(ctl);
+      const t = setTimeout(() => ctl.abort(), REQUEST_TIMEOUT);
+      onStart(model);
+      scanReceipt({ ...opts, model, signal: ctl.signal }).then(r => {
+        if (done) return;
+        r.model = model; finish(); outerSignal?.removeEventListener('abort', onOuter); resolve(r);
+      }, e => {
+        if (done) return;
+        if (e.name === 'AbortError') { e = new Error('Request timed out'); e.status = 'timeout'; }
+        e.model = model; errors.push(e);
+        if ([400, 401, 403].includes(e.status)) { finish(); return reject({ errors }); }
+        if (errors.length === models.length) { finish(); outerSignal?.removeEventListener('abort', onOuter); return reject({ errors }); }
+        clearTimeout(timer); launch(); // failed fast: try the next one now
+      }).finally(() => clearTimeout(t));
+      clearTimeout(timer); timer = setTimeout(launch, STAGGER);
+    };
+    launch();
+  });
 }
+
+const cancelled = () => { const e = new Error('Cancelled'); e.status = 'cancelled'; return e; };
+const sleep = (ms, signal) => new Promise(res => { const t = setTimeout(res, ms); signal?.addEventListener('abort', () => { clearTimeout(t); res(); }, { once: true }); });
 
 const round2 = n => Math.round((Number(n) || 0) * 100) / 100;
 
