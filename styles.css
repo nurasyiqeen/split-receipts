@@ -294,3 +294,72 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
 @media (min-width: 700px) {
   main { padding-top: 8px; }
 }
+
+/* ================= Lively style ================= */
+:root[data-style="lively"] {
+  --bg: #fbf4f6; --surface: #ffffff; --surface-2: #f8edf1; --surface-3: #f0dfe6; --sheet: #ffffff;
+  --ink: #2a1720; --ink-2: #6f5762; --ink-3: #a08a94; --line: #f0e2e8;
+  --good: #1f9d6c; --bad: #e0435c; --warn: #c27a00;
+  --shadow: 0 1px 2px rgba(120, 40, 70, .05), 0 8px 26px rgba(150, 50, 90, .08);
+  --glass: rgba(251, 244, 246, .8); --tabs-glass: rgba(255, 255, 255, .86);
+  --accent-soft: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  --radius: 22px;
+  --blob-a: color-mix(in srgb, var(--accent) 22%, transparent);
+  --blob-b: color-mix(in srgb, var(--accent-2) 26%, transparent);
+}
+@media (prefers-color-scheme: dark) {
+  :root[data-style="lively"]:not([data-theme="light"]) {
+    --bg: #110a0f; --surface: #1b1218; --surface-2: #251921; --surface-3: #30222b; --sheet: #1f151c;
+    --ink: #f7ecf1; --ink-2: #c4aab6; --ink-3: #8a7380; --line: rgba(255, 220, 235, .08);
+    --good: #5fdcaa; --bad: #ff8fa3; --warn: #ffc56e;
+    --card-border: rgba(255, 210, 230, .07); --seg-bg: #0d070b; --seg-on: var(--surface-3);
+    --glass: rgba(17, 10, 15, .78); --tabs-glass: rgba(27, 18, 24, .86);
+    --accent-text: color-mix(in srgb, var(--accent) 60%, #fff);
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, var(--surface));
+    --blob-a: color-mix(in srgb, var(--accent) 16%, transparent);
+    --blob-b: color-mix(in srgb, var(--accent-2) 12%, transparent);
+  }
+}
+:root[data-style="lively"][data-theme="dark"] {
+  --bg: #110a0f; --surface: #1b1218; --surface-2: #251921; --surface-3: #30222b; --sheet: #1f151c;
+  --ink: #f7ecf1; --ink-2: #c4aab6; --ink-3: #8a7380; --line: rgba(255, 220, 235, .08);
+  --good: #5fdcaa; --bad: #ff8fa3; --warn: #ffc56e;
+  --card-border: rgba(255, 210, 230, .07); --seg-bg: #0d070b; --seg-on: var(--surface-3);
+  --glass: rgba(17, 10, 15, .78); --tabs-glass: rgba(27, 18, 24, .86);
+  --accent-text: color-mix(in srgb, var(--accent) 60%, #fff);
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, var(--surface));
+  --blob-a: color-mix(in srgb, var(--accent) 16%, transparent);
+  --blob-b: color-mix(in srgb, var(--accent-2) 12%, transparent);
+}
+[data-style="lively"] body { font-family: "Nunito", "Plus Jakarta Sans", system-ui, sans-serif; font-weight: 500; }
+/* soft glow behind the page */
+[data-style="lively"] body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(420px 300px at 105% -40px, var(--blob-b), transparent 70%),
+    radial-gradient(380px 300px at -60px 120px, var(--blob-a), transparent 70%),
+    var(--bg);
+}
+[data-style="lively"] body { background: var(--bg); }
+[data-style="lively"] header.top h1 { font-weight: 900; letter-spacing: -.01em; }
+[data-style="lively"] .big-amount { font-weight: 900; letter-spacing: -.02em; }
+[data-style="lively"] .card h2 { color: color-mix(in srgb, var(--accent) 55%, var(--ink-3)); font-weight: 800; }
+[data-style="lively"] .btn { font-weight: 750; border-radius: 16px; }
+[data-style="lively"] .btn.primary,
+[data-style="lively"] nav.tabs a.scan span.dot,
+[data-style="lively"] .hero .card:first-child {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+}
+[data-style="lively"] .btn.primary { box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 32%, transparent); }
+[data-style="lively"] nav.tabs a.scan span.dot { border-radius: 50%; box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 0 5px var(--bg); }
+[data-style="lively"] .hero .card:first-child { box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 30%, transparent); }
+[data-style="lively"] .hero .card:first-child::after {
+  content: "✦"; position: absolute; right: 14px; top: 10px; font-size: 18px; color: rgba(255, 255, 255, .55);
+}
+[data-style="lively"] .hero .card { position: relative; }
+[data-style="lively"] .chip { font-weight: 650; }
+[data-style="lively"] .chip.plain.on { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; }
+[data-style="lively"] .item .head .num, [data-style="lively"] .list .amt { font-weight: 800; }
+[data-style="lively"] .scan-zone > svg { background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--surface)), color-mix(in srgb, var(--accent-2) 22%, var(--surface))); }
+[data-style="lively"] dialog.sheet h3 { font-weight: 900; }
+[data-style="lively"] .toast { border-radius: 999px; }

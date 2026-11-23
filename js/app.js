@@ -3,9 +3,12 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.1.1';
-const PERSON_COLORS = ['#e4572e', '#2e86ab', '#a23b72', '#f18f01', '#3b8e5a', '#6a4c93', '#1b998b', '#d1495b', '#5f7a00', '#8d6a9f', '#00798c', '#c26b00'];
+const VERSION = '1.2.0';
+const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
+// Lively style: accent + a second colour for gradients.
+const LIVELY = { '#e8508a': '#ff9f7a', '#c04a9b': '#f59ac0', '#8b5cf6': '#f472b6', '#f2665e': '#ffb36b', '#0ea5a0': '#a78bfa', '#4f7cf5': '#c084fc' };
+const STYLES = { lively: Object.keys(LIVELY), classic: ACCENTS };
 const CURRENCIES = ['MYR', 'SGD', 'USD', 'EUR', 'GBP', 'THB', 'IDR', 'JPY', 'KRW', 'CNY', 'AUD', 'HKD', 'TWD'];
 const SYMBOLS = { MYR: 'RM', SGD: 'S$', USD: 'US$', EUR: '€', GBP: '£', THB: '฿', IDR: 'Rp', JPY: '¥', KRW: '₩', CNY: 'CN¥', AUD: 'A$', HKD: 'HK$', TWD: 'NT$' };
 const MODELS = [
@@ -14,7 +17,7 @@ const MODELS = [
   ['gemini-flash-latest', 'Gemini Flash (smarter, lower free limit)'],
   ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
 ];
-const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', theme: 'auto', accent: ACCENTS[0] };
+const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', theme: 'auto', style: 'lively', accent: '#e8508a' };
 
 const state = { people: [], groups: [], receipts: [], payments: [], settings: { ...DEFAULT_SETTINGS }, draft: null, draftPhoto: null, scanning: null, scanError: null, pendingGroup: '' };
 
@@ -66,6 +69,7 @@ async function load() {
     db.all('people'), db.all('groups'), db.all('receipts'), db.all('payments'), db.get('kv', 'settings'), db.get('kv', 'draft'),
   ]);
   Object.assign(state, { people, groups, receipts, payments, settings: { ...DEFAULT_SETTINGS, ...(settings || {}) }, draft: draft || null });
+  if (settings && !settings.style) { state.settings.style = 'lively'; state.settings.accent = DEFAULT_SETTINGS.accent; await saveSettings(); }
   if (draft) state.draftPhoto = await db.get('photos', 'draft') || null;
   if (!state.people.find(p => p.id === ME)) {
     const me = { id: ME, name: 'Me', color: '#475569' };
@@ -103,10 +107,14 @@ function newPerson(name, phone = '') {
 
 // ---------- theme ----------
 function applyTheme() {
-  const { theme, accent } = state.settings;
+  const { theme, accent, style } = state.settings;
   const root = document.documentElement;
   if (theme === 'auto') delete root.dataset.theme; else root.dataset.theme = theme;
+  root.dataset.style = style;
   root.style.setProperty('--accent', accent);
+  root.style.setProperty('--accent-2', LIVELY[accent] || `color-mix(in srgb, ${accent} 65%, #04140f)`);
+  const me = state.people.find(p => p.id === ME);
+  if (me) me.color = accent; // your own avatar follows the accent colour
   // Status bar blends with the page background in both light and dark.
   requestAnimationFrame(() => document.querySelector('meta[name=theme-color]')?.setAttribute('content', getComputedStyle(root).getPropertyValue('--bg').trim()));
 }
@@ -843,7 +851,9 @@ async function makeImage({ title, subtitle, big, bigNote, sections, footer }) {
   const block = (h, fn) => { const top = y; ops.push(() => fn(top)); y += h; };
 
   block(bigNote ? 340 : 300, t => {
-    ctx.fillStyle = accent; ctx.fillRect(0, t, W, bigNote ? 340 : 300);
+    const grad = ctx.createLinearGradient(0, t, W, t + 340);
+    grad.addColorStop(0, accent); grad.addColorStop(1, state.settings.style === 'lively' && LIVELY[accent] ? LIVELY[accent] : accent);
+    ctx.fillStyle = grad; ctx.fillRect(0, t, W, bigNote ? 340 : 300);
     ctx.fillStyle = '#fff';
     ctx.font = F(700, 54); ctx.fillText(fit(title, W - 2 * P), P, t + 96);
     ctx.globalAlpha = 0.9; ctx.font = F(500, 32); ctx.fillText(fit(subtitle, W - 2 * P), P, t + 146); ctx.globalAlpha = 1;
@@ -1073,8 +1083,9 @@ function settingsPage() {
     </div>
     <div class="card stack">
       <h2>Appearance</h2>
+      <div class="seg">${[['lively', '✿ Lively'], ['classic', 'Classic']].map(([v, l]) => `<button class="${s.style === v ? 'on' : ''}" data-act="style" data-v="${v}">${l}</button>`).join('')}</div>
       <div class="seg">${['auto', 'light', 'dark'].map(t => `<button class="${s.theme === t ? 'on' : ''}" data-act="theme" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
-      <div class="swatches">${ACCENTS.map(c => `<button class="swatch ${c === s.accent ? 'on' : ''}" style="background:${c}" data-act="accent" data-v="${c}" aria-label="Accent colour"></button>`).join('')}</div>
+      <div class="swatches">${(STYLES[s.style] || ACCENTS).map(c => `<button class="swatch ${c === s.accent ? 'on' : ''}" style="background:${c}" data-act="accent" data-v="${c}" aria-label="Accent colour"></button>`).join('')}</div>
     </div>
     <div class="card flush"><div class="list"><a href="#/groups">${icon('group', 'width=22 height=22')}<div class="grow">Groups</div><span class="muted">${state.groups.length}</span></a></div></div>
     <div class="card stack">
@@ -1224,6 +1235,7 @@ const actions = {
     el.disabled = false; el.textContent = 'Test';
   },
   'theme': async el => { state.settings.theme = el.dataset.v; await saveSettings(); applyTheme(); rerender(); },
+  'style': async el => { state.settings.style = el.dataset.v; state.settings.accent = STYLES[el.dataset.v][0]; await saveSettings(); applyTheme(); rerender(); },
   'accent': async el => { state.settings.accent = el.dataset.v; await saveSettings(); applyTheme(); rerender(); },
   'export-csv': el => exportCSV(el.dataset.kind),
   'backup': () => backup($('#withPhotos').checked),

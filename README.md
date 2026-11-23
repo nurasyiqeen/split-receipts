@@ -16,7 +16,7 @@ A phone-friendly web app for splitting bills with friends. Snap a receipt, tap w
 - Every item shows its quantity (and unit price), and each receipt shows its total quantity.
 - **Receipt photos** are kept with each receipt.
 - **CSV export** and **full backup / restore** (JSON, optionally with photos).
-- Light/dark theme and accent colours. Works offline and can be installed on the home screen.
+- Two styles: **Lively** (rose & peach, rounded Nunito font; default) and **Classic**, each in light/dark with accent colours. Works offline and can be installed on the home screen.
 
 All data stays on your phone (IndexedDB). There is no server and no account.
 
