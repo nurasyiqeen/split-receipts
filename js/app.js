@@ -14,7 +14,7 @@ const MODELS = [
   ['gemini-flash-latest', 'Gemini Flash (smarter, lower free limit)'],
   ['gemini-3.5-flash', 'Gemini 3.5 Flash'],
 ];
-const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', cycleDay: 3, theme: 'auto', accent: ACCENTS[0] };
+const DEFAULT_SETTINGS = { apiKey: '', model: DEFAULT_MODEL, myName: '', currency: 'MYR', countryCode: '60', theme: 'auto', accent: ACCENTS[0] };
 
 const state = { people: [], groups: [], receipts: [], payments: [], settings: { ...DEFAULT_SETTINGS }, draft: null, draftPhoto: null, scanning: null, scanError: null, pendingGroup: '' };
 
@@ -991,16 +991,6 @@ function reportText(groupId, range, who) {
   return lines.join('\n').trim();
 }
 
-// Card cycles end on settings.cycleDay (e.g. the 3rd): a cycle runs from the day after to that day next month.
-function cycleRange(offset = 0) {
-  const day = Math.min(28, Math.max(1, Number(state.settings.cycleDay) || 3));
-  const now = new Date();
-  let y = now.getFullYear(), m = now.getMonth(); // m = month in which the current cycle ends
-  if (now.getDate() > day) m += 1;
-  m += offset;
-  const iso = (yy, mm, dd) => { const d = new Date(yy, mm, dd); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
-  return { from: iso(y, m - 1, day + 1), to: iso(y, m, day) };
-}
 function rangeLabel(range, receipts) {
   if (range.from || range.to) return `${range.from ? fmtDate(range.from) : 'Start'} – ${range.to ? fmtDate(range.to) : 'today'}`;
   const ds = receipts.map(r => r.date).filter(Boolean).sort();
@@ -1010,15 +1000,11 @@ function rangeLabel(range, receipts) {
 function reportSheet(groupId) {
   let sel = { group: groupId, period: 'all', from: '', to: '', who: '' };
   let blob, url;
-  const cur = cycleRange(0), prev = cycleRange(-1);
-  const short = r => `${shortDate(r.from)} – ${shortDate(r.to)}`;
   const dlg = sheet(`<h3>Report</h3>
     <div class="fields">
       <label class="field full"><span>Group</span><select id="rpg"><option value="">All receipts</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>
       <label class="field"><span>Period</span><select id="rpp">
         <option value="all">All receipts</option>
-        <option value="cur">This card cycle (${short(cur)})</option>
-        <option value="prev">Last card cycle (${short(prev)})</option>
         <option value="custom">Custom dates…</option></select></label>
       <label class="field"><span>Show</span><select id="rpw"></select></label>
       <label class="field" id="rpf" hidden><span>From</span><input type="date" id="rpfrom"></label>
@@ -1028,7 +1014,7 @@ function reportSheet(groupId) {
     <div class="btns" style="margin-top:12px"><button class="btn" id="rps">Save image</button><button class="btn" id="rpt">WhatsApp text</button><button class="btn primary" id="rpx" hidden>Share image</button></div>`,
   { onClose: () => url && URL.revokeObjectURL(url) });
   const $d = q => dlg.querySelector(q);
-  const range = () => sel.period === 'cur' ? cur : sel.period === 'prev' ? prev : sel.period === 'custom' ? { from: sel.from, to: sel.to } : { from: '', to: '' };
+  const range = () => sel.period === 'custom' ? { from: sel.from, to: sel.to } : { from: '', to: '' };
   const draw = async () => {
     const custom = sel.period === 'custom';
     $d('#rpf').hidden = !custom; $d('#rpt2').hidden = !custom;
@@ -1045,7 +1031,6 @@ function reportSheet(groupId) {
   $d('#rpg').onchange = e => { sel.group = e.target.value; draw(); };
   $d('#rpp').onchange = e => {
     sel.period = e.target.value;
-    if (sel.period === 'custom' && !sel.from && !sel.to) { sel.from = cur.from; sel.to = cur.to; $d('#rpfrom').value = sel.from; $d('#rpto').value = sel.to; }
     draw();
   };
   $d('#rpfrom').onchange = e => { sel.from = e.target.value; draw(); };
@@ -1082,7 +1067,6 @@ function settingsPage() {
       <div class="fields">
         <label class="field"><span>Default currency</span><select data-setting="currency">${CURRENCIES.map(c => `<option ${c === s.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
         <label class="field"><span>Phone country code</span><input type="tel" data-setting="countryCode" value="${esc(s.countryCode)}" placeholder="60"></label>
-        <label class="field full"><span>Credit card cycle ends on day (for reports)</span><select data-setting="cycleDay">${Array.from({ length: 28 }, (_, i) => i + 1).map(d => `<option ${Number(s.cycleDay) === d ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
       </div>
     </div>
     <div class="card stack">
