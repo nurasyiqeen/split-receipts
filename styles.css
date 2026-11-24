@@ -343,7 +343,7 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
 [data-style="lively"] body { background: var(--bg); }
 [data-style="lively"] header.top h1 { font-weight: 900; letter-spacing: -.01em; }
 [data-style="lively"] .big-amount { font-weight: 900; letter-spacing: -.02em; }
-[data-style="lively"] .card h2 { color: color-mix(in srgb, var(--accent) 55%, var(--ink-3)); font-weight: 800; }
+[data-style="lively"] .card h2 { color: var(--ink-3); font-weight: 800; }
 [data-style="lively"] .btn { font-weight: 750; border-radius: 16px; }
 [data-style="lively"] .btn.primary,
 [data-style="lively"] nav.tabs a.scan span.dot,
@@ -353,9 +353,7 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
 [data-style="lively"] .btn.primary { box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 32%, transparent); }
 [data-style="lively"] nav.tabs a.scan span.dot { border-radius: 50%; box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent), 0 0 0 5px var(--bg); }
 [data-style="lively"] .hero .card:first-child { box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 30%, transparent); }
-[data-style="lively"] .hero .card:first-child::after {
-  content: "✦"; position: absolute; right: 14px; top: 10px; font-size: 18px; color: rgba(255, 255, 255, .55);
-}
+
 [data-style="lively"] .hero .card { position: relative; }
 [data-style="lively"] .chip { font-weight: 650; }
 [data-style="lively"] .chip.plain.on { background: linear-gradient(135deg, var(--accent), var(--accent-2)); border-color: transparent; }
@@ -395,7 +393,7 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
 /* assign by person */
 .card.flush.painting { overflow: visible; }
 .paintbar {
-  position: sticky; top: calc(env(safe-area-inset-top) + 58px); z-index: 3;
+  position: sticky; top: var(--head-h, 58px); z-index: 3;
   background: var(--surface); padding: 10px 16px 12px; border-bottom: 1px solid var(--line);
   box-shadow: 0 6px 12px -8px rgba(0, 0, 0, .25);
 }
@@ -405,3 +403,32 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
 .item.paint.mine::after { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 3px 3px 0; background: var(--c); }
 .item.paint:last-child { border-radius: 0 0 var(--radius) var(--radius); }
 .paint-tick { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 15px; }
+
+/* ================= calmer, more structured layout (v1.5) ================= */
+.card { margin: 14px 0; padding: 18px; }
+.card.flush { padding: 6px 0; }
+.card h2 { font-size: 11.5px; letter-spacing: .09em; margin-bottom: 12px; }
+.btn.tonal { background: var(--accent-soft) !important; color: var(--accent-text); box-shadow: none; }
+.banner .btn.tonal { background: color-mix(in srgb, currentColor 14%, transparent) !important; color: inherit; }
+
+/* header row + optional sub row (editor tabs) */
+header.top { flex-wrap: wrap; }
+header.top .sub { flex-basis: 100%; margin-top: 10px; }
+.etabs { display: flex; gap: 4px; background: var(--seg-bg); border-radius: 14px; padding: 4px; }
+.etabs button {
+  flex: 1; border: 0; background: transparent; padding: 9px 4px; border-radius: 11px; cursor: pointer;
+  font-weight: 650; font-size: 14px; color: var(--ink-2); display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+}
+.etabs button.on { background: var(--seg-on); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .14); }
+.tab-badge { font-size: 11px; font-weight: 800; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--surface-3); color: var(--ink-2); display: inline-grid; place-items: center; }
+.tab-badge.bad { background: var(--bad); color: #fff; }
+
+/* sticky save bar replaces the tab bar in the editor */
+nav.tabs.bar { padding: 10px max(16px, calc((100% - 608px) / 2)) calc(10px + env(safe-area-inset-bottom)); }
+.savebar { display: flex; align-items: center; gap: 14px; width: 100%; }
+.savebar-total { font-size: 21px; font-weight: 800; letter-spacing: -.01em; }
+.savebar .btn { padding: 12px 22px; }
+
+/* settings menu */
+.menu .list > a { padding: 14px 16px; }
+.menu .tile { width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center; flex: none; }

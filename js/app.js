@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.4.1';
+const VERSION = '1.5.0';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -40,6 +40,7 @@ const tidyName = s => (/[a-z]/.test(s) || s.length < 4 ? s : s.toLowerCase().rep
 const clone = o => JSON.parse(JSON.stringify(o));
 
 function toast(msg, ms = 2600) {
+  document.querySelectorAll('.toast').forEach(x => x.remove()); // one message at a time
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = msg; t.setAttribute('role', 'status');
   document.body.append(t);
@@ -53,6 +54,11 @@ const ICONS = {
   people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.8"/><path d="M16 14.6c2.7.2 4.6 2 5.3 5.4"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
+  palette: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.8 1.6-1.6 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.7-1.6 1.6-1.6H16a5 5 0 0 0 5-5c0-4-4-7.4-9-7.4z"/><circle cx="7.5" cy="11" r="1.1"/><circle cx="10.5" cy="7" r="1.1"/><circle cx="15" cy="7.5" r="1.1"/>',
+  cloud: '<path d="M7 18h10a4 4 0 0 0 .5-8 6 6 0 0 0-11.6 1.5A3.3 3.3 0 0 0 7 18z"/><path d="M12 15V10M9.8 12L12 9.8 14.2 12"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4.2 4.2-6.5 8-6.5s7 2.3 8 6.5"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4"/>',
   trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
   share: '<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="M8.2 10.8l7.6-4.4M8.2 13.2l7.6 4.4"/>',
@@ -164,7 +170,7 @@ const routes = [
   [/^$/, homePage], [/^receipts$/, receiptsPage], [/^new$/, newPage], [/^edit$/, editorPage],
   [/^r\/([\w-]+)$/, receiptPage], [/^r\/([\w-]+)\/edit$/, editExisting],
   [/^friends$/, friendsPage], [/^f\/([\w-]+)$/, friendPage],
-  [/^groups$/, groupsPage], [/^g\/([\w-]+)$/, groupPage], [/^settings$/, settingsPage],
+  [/^groups$/, groupsPage], [/^g\/([\w-]+)$/, groupPage], [/^settings(?:\/(\w+))?$/, settingsPage],
 ];
 let current = null;
 function render() {
@@ -175,10 +181,12 @@ function render() {
       const page = fn(...m.slice(1));
       if (!page) return;
       current = page;
-      $('#top').innerHTML = `${page.back ? `<a class="icon-btn" href="${page.back}" aria-label="Back">${icon('back')}</a>` : ''}<h1>${esc(page.title)}</h1>${page.actions || ''}`;
+      $('#top').innerHTML = `${page.back ? `<a class="icon-btn" href="${page.back}" aria-label="Back">${icon('back')}</a>` : ''}<h1>${esc(page.title)}</h1>${page.actions || ''}${page.sub ? `<div class="sub">${page.sub}</div>` : ''}`;
       $('#app').innerHTML = page.html;
       document.title = page.title === 'Split Receipts' ? page.title : `${page.title} · Split Receipts`;
-      renderTabs(page.tab);
+      if (page.bottom) { $('#tabs').innerHTML = page.bottom; $('#tabs').classList.add('bar'); }
+      else { $('#tabs').classList.remove('bar'); renderTabs(page.tab); }
+      document.documentElement.style.setProperty('--head-h', $('#top').offsetHeight + 'px');
       page.after?.();
       return;
     }
@@ -227,7 +235,7 @@ function homePage() {
 
   const html = `
     ${due ? backupBanner() : ''}
-    ${noKey ? `<div class="banner warn">To scan receipts, add a free Gemini API key in <a href="#/settings">Settings</a>. You can still type receipts in by hand.</div>` : ''}
+    ${noKey ? `<div class="banner warn">To scan receipts, add a free Gemini API key in <a href="#/settings/scan">Settings</a>. You can still type receipts in by hand.</div>` : ''}
     <div class="hero">
       <div class="card"><div class="muted small">Owed to you</div><div class="big-amount num good" style="font-size:24px">${fmtMulti(owed)}</div></div>
       <div class="card"><div class="muted small">You owe</div><div class="big-amount num ${Object.keys(owe).length ? 'bad' : ''}" style="font-size:24px">${fmtMulti(owe)}</div></div>
@@ -290,7 +298,7 @@ function newPage() {
   }
   const noKey = !state.settings.apiKey;
   const html = `
-    ${state.draft ? `<div class="banner warn row between"><span>You have an unsaved receipt${state.draft.merchant ? ` (${esc(state.draft.merchant)})` : ''}.</span><span class="btns" style="flex:none"><button class="btn sm" data-act="draft-discard">Discard</button><button class="btn sm primary" data-act="draft-continue">Continue</button></span></div>` : ''}
+    ${state.draft ? `<div class="banner warn row between"><span>You have an unsaved receipt${state.draft.merchant ? ` (${esc(state.draft.merchant)})` : ''}.</span><span class="btns" style="flex:none"><button class="btn sm" data-act="draft-discard">Discard</button><button class="btn sm tonal" data-act="draft-continue">Continue</button></span></div>` : ''}
     ${state.scanError ? `<div class="banner warn"><strong>Couldn't read the receipt.</strong><br>${esc(state.scanError)}${state.draftPhoto ? '<div class="btns" style="margin-top:8px"><button class="btn sm" data-act="rescan">Try again</button><button class="btn sm" data-act="manual-photo">Enter by hand</button></div>' : ''}</div>` : ''}
     <div class="card scan-zone">
       ${icon('receipt')}
@@ -311,7 +319,7 @@ function keyHelp() {
     <ol class="small" style="padding-left:20px;margin:0">
       <li>Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio → API keys</a> and sign in with your Google account.</li>
       <li>Tap <strong>Create API key</strong> and copy it.</li>
-      <li>Paste it in <a href="#/settings">Settings → Receipt scanning</a>.</li>
+      <li>Paste it in <a href="#/settings/scan">Settings → Receipt scanning</a>.</li>
     </ol>
     <p class="small muted" style="margin-bottom:0">The free tier is plenty for personal use. The key is stored only on this phone and sent only to Google.</p></div>`;
 }
@@ -466,36 +474,27 @@ function editorPage() {
     return `<div class="sumline"><span class="row">${avatar(pid, 'sm')}${esc(pname(pid))}${pid === d.payerId ? ' <span class="small muted">(paid)</span>' : ''}</span><span class="num">${fmt(p?.total || 0, cur)}</span></div>`;
   }).join('');
 
-  const html = `
-    ${d.hasPhoto ? `<div class="card" style="padding:8px"><img class="thumb" id="draftimg" alt="Receipt photo" data-act="zoom-photo"></div>` : ''}
-    ${check}
-    <div class="card">
-      <div class="fields">
-        <label class="field full"><span>Shop / restaurant</span><input type="text" data-f="merchant" value="${esc(d.merchant)}" placeholder="e.g. Hock Kee"></label>
-        <label class="field"><span>Date</span><input type="date" data-f="date" value="${esc(d.date)}"></label>
-        <label class="field"><span>Currency</span><select data-f="currency">${[...new Set([...CURRENCIES, cur])].map(c => `<option ${c === cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
-        ${state.groups.length ? `<label class="field full"><span>Group</span><select data-f="groupId"><option value="">None</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === d.groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>` : ''}
-      </div>
-    </div>
-    <div class="card">
-      <h2>Who was there?</h2>
-      <div class="chips">${parts.map(pid => chip(pid, true, 'people')).join('')}<button class="chip dashed" data-act="people">${icon('plus', 'width=16 height=16')} Add friends</button></div>
-    </div>
+  // Tabs keep the editor short: Items · People · Charges · Details.
+  if (state.editDraftId !== d.id) { state.editDraftId = d.id; state.editTab = d.isNew && parts.length < 2 ? 'people' : 'items'; }
+  const tab = state.editTab || 'items';
+  const unItems = d.items.filter(it => S.itemSplit(it)[S.UNASSIGNED]).length;
+  const badges = { items: unItems ? `<span class="tab-badge bad">${unItems}</span>` : '', people: `<span class="tab-badge">${parts.length}</span>`, charges: d.adjustments.length ? `<span class="tab-badge">${d.adjustments.length}</span>` : '', details: '' };
+  const sub = `<div class="etabs" role="tablist">${[['items', 'Items'], ['people', 'People'], ['charges', 'Charges'], ['details', 'Details']].map(([k, l]) => `<button role="tab" aria-selected="${tab === k}" class="${tab === k ? 'on' : ''}" data-act="etab" data-v="${k}">${l}${badges[k]}</button>`).join('')}</div>`;
+
+  const itemsTab = `${check}
     <div class="card flush ${paint ? 'painting' : ''}">
       <div class="row between" style="padding-right:12px"><h2>Items · Qty ${totalQty(d)}</h2>
-        <span class="row" style="gap:2px">${d.items.length && parts.length > 1 ? `<button class="btn sm ${paint ? 'primary' : 'ghost'}" data-act="assign-mode">${paint ? 'Done' : 'By person'}</button>` : ''}${paint ? '' : `<button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button>`}</span></div>
+        <span class="row" style="gap:2px">${d.items.length && parts.length > 1 ? `<button class="btn sm ${paint ? 'tonal' : 'ghost'}" data-act="assign-mode">${paint ? 'Done' : 'By person'}</button>` : ''}${paint ? '' : `<button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button>`}</span></div>
       ${paint ? `<div class="paintbar"><div class="small muted" style="margin-bottom:8px">Pick a person, then tap everything they had. Tap again to remove.</div><div class="chips">${parts.map(pid => chip(pid, state.brush === pid, 'brush')).join('')}</div></div>`
         : d.items.length ? `<p class="small muted" style="margin:2px 16px 4px">Tap who had each item${parts.length > 1 ? ', or use “By person” to go one friend at a time' : ''}.</p>` : ''}
       ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}
     </div>
+    ${parts.length < 2 ? `<div class="banner warn">Only you are on this receipt. <a href="#" data-act="etab" data-v="people">Add the friends who were there</a> first.</div>` : ''}`;
+
+  const peopleTab = `
     <div class="card">
-      <h2>Tax, charges & discounts</h2>
-      <p class="small muted" style="margin-top:0">Shared in proportion to what each person ordered.</p>
-      ${d.adjustments.map(a => `<div class="adj-row"><input type="text" value="${esc(a.label)}" data-adj-label="${a.id}" aria-label="Label"><input type="text" inputmode="decimal" class="num" value="${a.amount.toFixed(2)}" data-adj-amount="${a.id}" aria-label="Amount"><button class="icon-btn" data-act="del-adj" data-id="${a.id}" aria-label="Remove">${icon('trash')}</button></div>`).join('')}
-      <div class="btns"><button class="btn sm" data-act="add-adj" data-kind="tax" data-label="SST 6%">+ SST 6%</button><button class="btn sm" data-act="add-adj" data-kind="service_charge" data-label="Service charge 10%">+ Service 10%</button><button class="btn sm" data-act="add-adj" data-kind="other" data-label="">+ Other</button></div>
-      <hr>
-      <div class="sumline"><span>Items</span><span class="num">${fmt(itemSum, cur)}</span></div>
-      <div class="sumline total"><span>Total</span><span class="num">${fmt(total, cur)}</span></div>
+      <h2>Who was there?</h2>
+      <div class="chips">${parts.map(pid => chip(pid, true, 'people')).join('')}<button class="chip dashed" data-act="people">${icon('plus', 'width=16 height=16')} Add friends</button></div>
     </div>
     <div class="card">
       <h2>Paid by</h2>
@@ -505,14 +504,42 @@ function editorPage() {
       <h2>Split</h2>
       ${split.unassigned ? `<div class="banner warn">${fmt(split.unassigned, cur)} not assigned yet.<div class="btns" style="margin-top:8px"><button class="btn sm" data-act="assign-rest">Give the rest to ${esc(pname(d.payerId))}</button>${parts.length > 1 ? '<button class="btn sm" data-act="split-rest">Split the rest equally</button>' : ''}</div></div>` : ''}
       ${summary}
+      <p class="small muted" style="margin:8px 0 0">Includes each person's share of tax, charges and discounts.</p>
+    </div>`;
+
+  const chargesTab = `
+    <div class="card">
+      <h2>Tax, charges & discounts</h2>
+      <p class="small muted" style="margin-top:0">Shared in proportion to what each person ordered.</p>
+      ${d.adjustments.map(a => `<div class="adj-row"><input type="text" value="${esc(a.label)}" data-adj-label="${a.id}" aria-label="Label"><input type="text" inputmode="decimal" class="num" value="${a.amount.toFixed(2)}" data-adj-amount="${a.id}" aria-label="Amount"><button class="icon-btn" data-act="del-adj" data-id="${a.id}" aria-label="Remove">${icon('trash')}</button></div>`).join('')}
+      <div class="btns"><button class="btn sm" data-act="add-adj" data-kind="tax" data-label="SST 6%">+ SST 6%</button><button class="btn sm" data-act="add-adj" data-kind="service_charge" data-label="Service charge 10%">+ Service 10%</button><button class="btn sm" data-act="add-adj" data-kind="other" data-label="">+ Other</button></div>
+      <hr>
+      <div class="sumline"><span>Items</span><span class="num">${fmt(itemSum, cur)}</span></div>
+      ${d.adjustments.map(a => `<div class="sumline small muted"><span>${esc(a.label || 'Adjustment')}</span><span class="num">${fmt(S.toCents(a.amount), cur)}</span></div>`).join('')}
+      <div class="sumline total"><span>Total</span><span class="num">${fmt(total, cur)}</span></div>
+    </div>`;
+
+  const detailsTab = `
+    ${d.hasPhoto ? `<div class="card" style="padding:8px"><img class="thumb" id="draftimg" alt="Receipt photo" data-act="zoom-photo"></div>` : ''}
+    <div class="card">
+      <div class="fields">
+        <label class="field full"><span>Shop / restaurant</span><input type="text" data-f="merchant" value="${esc(d.merchant)}" placeholder="e.g. Hock Kee"></label>
+        <label class="field"><span>Date</span><input type="date" data-f="date" value="${esc(d.date)}"></label>
+        <label class="field"><span>Currency</span><select data-f="currency">${[...new Set([...CURRENCIES, cur])].map(c => `<option ${c === cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+        ${state.groups.length ? `<label class="field full"><span>Group</span><select data-f="groupId"><option value="">None</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === d.groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>` : ''}
+        <label class="field full"><span>Note (optional)</span><input type="text" data-f="note" value="${esc(d.note)}" placeholder="e.g. Ali's birthday dinner"></label>
+      </div>
     </div>
-    <div class="card"><label class="field"><span>Note (optional)</span><input type="text" data-f="note" value="${esc(d.note)}" placeholder="e.g. Ali's birthday dinner"></label></div>
-    <div class="btns"><button class="btn" data-act="cancel-edit">Cancel</button><button class="btn primary" data-act="save-receipt">Save receipt</button></div>`;
+    <button class="btn block danger" data-act="cancel-edit">${d.isNew ? 'Discard this receipt' : 'Discard changes'}</button>`;
+
+  const html = { items: itemsTab, people: peopleTab, charges: chargesTab, details: detailsTab }[tab];
+  const bottom = `<div class="savebar"><div class="grow" style="min-width:0"><div class="savebar-total num">${fmt(total, cur)}</div>
+      <div class="small ${split.unassigned ? 'bad' : 'muted'}">${!d.items.length ? 'No items yet' : split.unassigned ? `${fmt(split.unassigned, cur)} not assigned` : '✓ Everything assigned'}</div></div>
+    <button class="btn primary" data-act="save-receipt">${icon('check', 'width=20 height=20')} Save</button></div>`;
   return {
-    title: d.isNew ? 'New receipt' : 'Edit receipt', tab: 'new', html,
+    title: d.merchant || (d.isNew ? 'New receipt' : 'Edit receipt'), tab: 'new', html, sub, bottom,
     back: d.isNew ? '#/new' : `#/r/${d.id}`,
-    actions: `<button class="btn sm primary" data-act="save-receipt">Save</button>`,
-    after: () => setPhoto('#draftimg', d.isNew ? 'draft' : d.id),
+    after: () => { if (tab === 'details') setPhoto('#draftimg', d.isNew ? 'draft' : d.id); },
   };
 }
 
@@ -589,7 +616,12 @@ async function saveReceipt() {
   const d = state.draft;
   if (!d.items.length) return toast('Add at least one item.');
   const split = S.splitReceipt(d);
-  if (split.unassigned) { $('#summary')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return toast('Some items are not assigned to anyone yet.'); }
+  if (split.unassigned) {
+    state.editTab = d.items.some(it => S.itemSplit(it)[S.UNASSIGNED]) ? 'items' : 'people';
+    render();
+    document.querySelector('.item.unassigned')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return toast('Some items are not assigned to anyone yet.');
+  }
   if (!d.participants.includes(d.payerId)) d.payerId = d.participants[0];
   const { isNew, ...rec } = d;
   rec.updatedAt = Date.now();
@@ -632,7 +664,7 @@ function receiptPage(id) {
     ${r.hasPhoto ? `<div class="card" style="padding:8px"><img class="thumb" id="rimg" alt="Receipt photo" data-act="zoom-photo"></div>` : ''}
     <div class="card flush"><h2>Items · Qty ${totalQty(r)}</h2><div class="list">${r.items.map(it => `<li><div class="grow"><div>${esc(it.name)}${qtyLine(it, cur)}</div><div class="small muted">${Object.entries(it.shares).filter(([, n]) => n > 0).map(([pid, n]) => esc(pname(pid)) + (it.byUnit && it.qty > 1 ? ` ×${n}` : '')).join(', ')}</div></div><div class="num">${fmt(S.toCents(it.amount), cur)}</div></li>`).join('')}
       ${r.adjustments.map(a => `<li class="small muted"><div class="grow">${esc(a.label)}</div><div class="num">${fmt(S.toCents(a.amount), cur)}</div></li>`).join('')}</div></div>
-    <div class="btns"><button class="btn primary" data-act="share-receipt" data-id="${r.id}">${icon('share', 'width=20 height=20')} WhatsApp text</button><button class="btn primary" data-act="image-receipt" data-id="${r.id}">${icon('gallery', 'width=20 height=20')} Image</button></div>
+    <div class="btns"><button class="btn tonal" data-act="share-receipt" data-id="${r.id}">${icon('share', 'width=20 height=20')} WhatsApp text</button><button class="btn primary" data-act="image-receipt" data-id="${r.id}">${icon('gallery', 'width=20 height=20')} Image</button></div>
     <div class="btns" style="margin-top:8px"><a class="btn" href="#/r/${r.id}/edit">${icon('edit', 'width=20 height=20')} Edit</a><button class="btn danger" data-act="delete-receipt" data-id="${r.id}">${icon('trash', 'width=20 height=20')} Delete</button></div>`;
   return { title: r.merchant || 'Receipt', back: '#/receipts', tab: 'receipts', html, after: () => setPhoto('#rimg', r.id) };
 }
@@ -684,7 +716,7 @@ function friendsPage() {
     return `<a href="#/f/${f.id}">${avatar(f.id)}<div class="grow"><div class="ellipsis">${esc(f.name)}</div><div class="small muted">${v > 0 ? 'owes you' : v < 0 ? 'you owe' : 'settled up'}</div></div><div class="amt num ${v > 0 ? 'good' : v < 0 ? 'bad' : 'muted'}">${Object.keys(b).length ? Object.entries(b).map(([c, x]) => fmt(Math.abs(x), c)).join('<br>') : ''}</div></a>`; };
   const html = `
     <div class="card flush">${list.length ? `<div class="list">${list.map(row).join('')}</div>` : '<div class="empty">No friends yet. Add them here or while splitting a receipt.</div>'}</div>
-    <div class="btns"><button class="btn primary" data-act="new-friend">${icon('plus', 'width=20 height=20')} Add friend</button><a class="btn" href="#/groups">${icon('group', 'width=20 height=20')} Groups</a></div>
+    <div class="btns"><button class="btn primary" data-act="new-friend">${icon('plus', 'width=20 height=20')} Add friend</button><a class="btn tonal" href="#/groups">${icon('group', 'width=20 height=20')} Groups</a></div>
     ${archived.length ? `<div class="card flush" style="margin-top:16px"><h2>Archived</h2><div class="list">${archived.map(row).join('')}</div></div>` : ''}`;
   return { title: 'Friends', tab: 'friends', html };
 }
@@ -843,7 +875,7 @@ function groupPage(id) {
       const b = pid === ME ? {} : S.balanceWith(bal, ME, pid); const v = Object.values(b)[0] || 0;
       return `<${pid === ME ? 'li' : `a href="#/f/${pid}"`}>${avatar(pid)}<div class="grow"><div>${esc(pname(pid))}</div><div class="small muted">Spent ${fmtMulti(spend[pid] || {})} in this group</div></div><div class="amt num small ${v > 0 ? 'good' : v < 0 ? 'bad' : 'muted'}">${pid === ME ? '' : v ? `${v > 0 ? 'owes you' : 'you owe'}<br>${fmt(Math.abs(v), Object.keys(b)[0])}` : 'settled'}</div></${pid === ME ? 'li' : 'a'}>`;
     }).join('')}</div></div>
-    <div class="btns"><button class="btn primary" data-act="group-receipt" data-id="${id}">${icon('camera', 'width=20 height=20')} New receipt</button><button class="btn" data-act="group-add-existing" data-id="${id}">${icon('plus', 'width=20 height=20')} Add existing</button></div>
+    <div class="btns"><button class="btn primary" data-act="group-receipt" data-id="${id}">${icon('camera', 'width=20 height=20')} New receipt</button><button class="btn tonal" data-act="group-add-existing" data-id="${id}">${icon('plus', 'width=20 height=20')} Add existing</button></div>
     ${rs.length ? `<button class="btn block" style="margin-top:8px" data-act="report" data-id="${id}">${icon('gallery', 'width=20 height=20')} Report image</button>` : ''}
     <div class="card flush"><h2>Receipts</h2>${rs.length ? `<div class="list">${rs.map(receiptRow).join('')}</div>` : '<div class="empty">No receipts in this group yet.</div>'}</div>`;
   return { title: g.name, back: '#/groups', tab: 'friends', html, actions: `<button class="icon-btn" data-act="edit-group" data-id="${id}" aria-label="Edit">${icon('edit')}</button>` };
@@ -1248,27 +1280,27 @@ function reportSheet(groupId) {
 const slug = s => String(s || 'receipt').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 
 // ----- settings -----
-function settingsPage() {
+function settingsPage(section) {
   const s = state.settings;
   const known = MODELS.some(([m]) => m === s.model);
-  const html = `
-    <div class="card stack">
+  const sections = {
+    scan: { title: 'Receipt scanning', html: `    <div class="card stack">
       <h2>Receipt scanning</h2>
       <label class="field"><span>Gemini API key</span>
         <div class="row"><input type="password" id="key" value="${esc(s.apiKey)}" placeholder="Paste your key" autocomplete="off" class="grow"><button class="btn sm" data-act="toggle-key">Show</button></div></label>
-      <div class="btns"><button class="btn sm primary" data-act="save-key">Save key</button><button class="btn sm" data-act="test-key">Test</button></div>
+      <div class="btns"><button class="btn sm tonal" data-act="save-key">Save key</button><button class="btn sm" data-act="test-key">Test</button></div>
       <p class="small muted" style="margin:0">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. It stays on this phone and is only sent to Google when you scan.</p>
       <label class="field"><span>Model</span><select data-setting="model">${MODELS.map(([m, l]) => `<option value="${m}" ${m === s.model ? 'selected' : ''}>${l}</option>`).join('')}${known ? '' : `<option value="${esc(s.model)}" selected>${esc(s.model)}</option>`}<option value="__custom">Other…</option></select></label>
       <p class="small muted" style="margin:0">If the chosen model is busy, the app races the others and keeps trying for up to 90 seconds. If Google's free tier is often busy for you, turn on billing for this key in AI Studio. It costs a fraction of a sen per scan and is much less likely to be busy.</p>
     </div>
-    <div class="card stack">
+` },
+    you: { title: 'You & payment', html: `    <div class="card stack">
       <h2>You</h2>
       <label class="field"><span>Your name (used in WhatsApp messages)</span><input type="text" data-setting="myName" value="${esc(s.myName)}" placeholder="e.g. Asyiqeen"></label>
       <div class="fields">
         <label class="field"><span>Default currency</span><select data-setting="currency">${CURRENCIES.map(c => `<option ${c === s.currency ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
         <label class="field"><span>Phone country code</span><input type="tel" data-setting="countryCode" value="${esc(s.countryCode)}" placeholder="60"></label>
       </div>
-    </div>
     <div class="card stack">
       <h2>Payment QR</h2>
       ${state.hasQr ? `
@@ -1279,31 +1311,45 @@ function settingsPage() {
         <label class="row small"><input type="checkbox" data-act="qr-attach" ${s.qrAttach !== false ? 'checked' : ''} style="width:20px;height:20px;min-height:0"> Add a “Scan to pay” page to report, statement and share images</label>
         <div class="btns"><label class="btn sm">Replace QR<input type="file" accept="image/*" data-qr hidden></label><button class="btn sm danger" data-act="qr-remove">Remove</button></div>`
       : `<p class="small muted" style="margin:0">Add your DuitNow or bank QR (a screenshot from your banking app works). It's added as a separate “Scan to pay” image when you share a report, statement or someone's share, so friends can pay you straight away.</p>
-        <label class="btn sm primary" style="align-self:flex-start">Upload QR image<input type="file" accept="image/*" data-qr hidden></label>`}
+        <label class="btn sm tonal" style="align-self:flex-start">Upload QR image<input type="file" accept="image/*" data-qr hidden></label>`}
     </div>
-    <div class="card stack">
+` },
+    look: { title: 'Appearance', html: `    <div class="card stack">
       <h2>Appearance</h2>
       <div class="seg">${[['lively', 'Lively'], ['classic', 'Classic']].map(([v, l]) => `<button class="${s.style === v ? 'on' : ''}" data-act="style" data-v="${v}">${l}</button>`).join('')}</div>
       ${s.style === 'lively' ? `<label class="row small"><input type="checkbox" data-act="pattern" ${s.pattern !== false ? 'checked' : ''} style="width:20px;height:20px;min-height:0"> Background pattern</label>` : ''}
       <div class="seg">${['auto', 'light', 'dark'].map(t => `<button class="${s.theme === t ? 'on' : ''}" data-act="theme" data-v="${t}">${t[0].toUpperCase() + t.slice(1)}</button>`).join('')}</div>
       <div class="swatches">${(STYLES[s.style] || ACCENTS).map(c => `<button class="swatch ${c === s.accent ? 'on' : ''}" style="background:${c}" data-act="accent" data-v="${c}" aria-label="Accent colour"></button>`).join('')}</div>
     </div>
-    <div class="card flush"><div class="list"><a href="#/groups">${icon('group', 'width=22 height=22')}<div class="grow">Groups</div><span class="muted">${state.groups.length}</span></a></div></div>
-    <div class="card stack">
+` },
+    data: { title: 'Backup & export', html: `    <div class="card stack">
       <h2>Export & backup</h2>
       <p class="small muted" style="margin:0">Your data lives only on this phone. ${state.settings.lastBackup ? `<strong>Last backup ${ago(state.settings.lastBackup)}</strong>${state.settings.changes ? ` · ${state.settings.changes} change${state.settings.changes === 1 ? '' : 's'} since` : ''}.` : '<strong>Not backed up yet.</strong>'} “Back up now” lets you save it straight to Google Drive or send it to yourself on WhatsApp.</p>
       <div class="btns"><button class="btn sm" data-act="export-csv" data-kind="shares">CSV: who owes what</button><button class="btn sm" data-act="export-csv" data-kind="items">CSV: all items</button><button class="btn sm" data-act="export-csv" data-kind="ledger">CSV: debts & payments</button></div>
       <label class="row small"><input type="checkbox" id="withPhotos" checked style="width:auto;min-height:0"> Include receipt photos in backup</label>
-      <div class="btns"><button class="btn sm primary" data-act="backup">Back up now</button><label class="btn sm">Restore backup<input type="file" accept="application/json,.json,text/plain,.txt" data-restore hidden></label></div>
+      <div class="btns"><button class="btn sm tonal" data-act="backup">Back up now</button><label class="btn sm">Restore backup<input type="file" accept="application/json,.json,text/plain,.txt" data-restore hidden></label></div>
       <button class="btn sm danger" data-act="erase">Erase all data</button>
     </div>
-    <p class="small muted" style="text-align:center">Split Receipts ${VERSION} · ${state.receipts.length} receipts · <span id="persist"></span></p>`;
-  return {
-    title: 'Settings', tab: 'settings', html,
-    async after() {
-      if (state.hasQr) setPhoto('#qrprev', 'payqr');
-      const p = await navigator.storage?.persisted?.(); const el = $('#persist'); if (el) el.textContent = p ? 'storage protected' : 'storage not yet protected'; },
+` },
   };
+  const after = async () => {
+    if (state.hasQr) setPhoto('#qrprev', 'payqr');
+    const p = await navigator.storage?.persisted?.(); const el = $('#persist'); if (el) el.textContent = p ? 'storage protected' : 'storage not yet protected';
+  };
+  if (section && sections[section]) return { title: sections[section].title, back: '#/settings', tab: 'settings', html: sections[section].html, after };
+  const modelName = (MODELS.find(([m]) => m === s.model)?.[1] || s.model).replace(/ \(.*\)/, '');
+  const due = backupDue();
+  const row = (href, ic, title, status, warn) => `<a href="${href}"><span class="tile">${icon(ic, 'width=22 height=22')}</span><div class="grow"><div style="font-weight:650">${title}</div><div class="small ${warn ? 'bad' : 'muted'} ellipsis">${status}</div></div><span class="muted" style="display:flex">${icon('chev', 'width=18 height=18')}</span></a>`;
+  const html = `
+    <div class="card flush menu"><div class="list">
+      ${row('#/settings/scan', 'camera', 'Receipt scanning', s.apiKey ? `Key saved · ${esc(modelName)}` : 'Add a free Gemini key to scan', !s.apiKey)}
+      ${row('#/settings/you', 'user', 'You & payment', `${s.myName ? esc(s.myName) : 'Name not set'} · ${state.hasQr ? 'payment QR added' : 'no payment QR'}`)}
+      ${row('#/settings/look', 'palette', 'Appearance', `${s.style === 'classic' ? 'Classic' : 'Lively'} · ${s.theme[0].toUpperCase() + s.theme.slice(1)}`)}
+      ${row('#/groups', 'group', 'Groups', `${state.groups.length} group${state.groups.length === 1 ? '' : 's'}`)}
+      ${row('#/settings/data', 'cloud', 'Backup & export', s.lastBackup ? `Last backup ${ago(s.lastBackup)}${s.changes ? ` · ${s.changes} change${s.changes === 1 ? '' : 's'} since` : ''}` : 'Not backed up yet', due)}
+    </div></div>
+    <p class="small muted" style="text-align:center">Split Receipts ${VERSION} · ${state.receipts.length} receipts · <span id="persist"></span></p>`;
+  return { title: 'Settings', tab: 'settings', html, after };
 }
 
 function download(name, content, type) {
@@ -1405,6 +1451,7 @@ const actions = {
   'unit-inc': el => { const it = itemOf(el); const used = Object.values(it.shares).reduce((s, n) => s + n, 0); if (used >= it.qty) return toast(`All ${it.qty} already assigned.`); it.shares[el.dataset.pid] = (it.shares[el.dataset.pid] || 0) + 1; changed(); },
   'unit-dec': el => { const it = itemOf(el); const pid = el.dataset.pid; if (!it.shares[pid]) return; it.shares[pid]--; if (!it.shares[pid]) delete it.shares[pid]; changed(); },
   'edit-item': el => editItemSheet(el.dataset.id),
+  'etab': el => { state.editTab = el.dataset.v; render(); scrollTo(0, 0); },
   'assign-mode': () => { state.assignMode = !state.assignMode; rerender(); },
   'brush': el => { state.brush = el.dataset.pid; rerender(); },
   'paint': el => {
