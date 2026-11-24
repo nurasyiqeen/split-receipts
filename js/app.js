@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.5.2';
+const VERSION = '1.5.3';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -510,8 +510,14 @@ function editorPage() {
         : d.items.length ? `<p class="small muted" style="margin:0 16px 4px">${parts.length < 2 ? 'Add the friends who were there (step 2) first.' : 'Tap who had each item, or use “By person” to go one friend at a time.'}</p>` : ''}
       ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}`;
   const splitBody = `
-      ${d.adjustments.map(a => `<div class="adj-row"><input type="text" value="${esc(a.label)}" data-adj-label="${a.id}" aria-label="Label"><input type="text" inputmode="decimal" class="num" value="${a.amount.toFixed(2)}" data-adj-amount="${a.id}" aria-label="Amount"><button class="icon-btn" data-act="del-adj" data-id="${a.id}" aria-label="Remove">${icon('trash')}</button></div>`).join('')}
-      <div class="btns"><button class="btn sm" data-act="add-adj" data-kind="tax" data-label="SST 6%">+ SST 6%</button><button class="btn sm" data-act="add-adj" data-kind="service_charge" data-label="Service charge 10%">+ Service 10%</button><button class="btn sm" data-act="add-adj" data-kind="other" data-label="">+ Other</button></div>
+      <div class="small muted" style="font-weight:700;margin-bottom:8px">On this receipt</div>
+      ${d.adjustments.length ? d.adjustments.map(a => `<div class="adj-row"><input type="text" value="${esc(a.label)}" data-adj-label="${a.id}" aria-label="Label"><input type="text" inputmode="decimal" class="num" value="${a.amount.toFixed(2)}" data-adj-amount="${a.id}" aria-label="Amount"><button class="icon-btn" data-act="del-adj" data-id="${a.id}" aria-label="Remove">${icon('trash')}</button></div>`).join('')
+        : '<div class="small muted adj-empty">No tax or charges.</div>'}
+      <div class="adj-add"><span class="small muted">Add</span>
+        ${d.adjustments.some(a => a.kind === 'tax') ? '' : `<button class="chip dashed" data-act="add-adj" data-kind="tax" data-label="SST 6%">${icon('plus', 'width=14 height=14')} SST 6%</button>`}
+        ${d.adjustments.some(a => a.kind === 'service_charge') ? '' : `<button class="chip dashed" data-act="add-adj" data-kind="service_charge" data-label="Service charge 10%">${icon('plus', 'width=14 height=14')} Service 10%</button>`}
+        <button class="chip dashed" data-act="add-adj" data-kind="other" data-label="">${icon('plus', 'width=14 height=14')} Other</button>
+      </div>
       <div class="totals">
         <div class="sumline"><span>Items</span><span class="num">${fmt(itemSum, cur)}</span></div>
         <div class="sumline"><span>Tax, charges & discounts</span><span class="num">${fmt(total - itemSum, cur)}</span></div>

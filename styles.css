@@ -488,3 +488,8 @@ div.field > span:first-child { display: block; font-size: 12.5px; font-weight: 6
 .sec:not(.flush):not(.folded) .sec-head { margin-bottom: 14px; }
 .sec-head .row .btn { padding-left: 8px; padding-right: 8px; }
 .sec-head h2 + .sec-chev { margin-left: auto; }
+
+/* charges: real rows vs. "add" suggestions */
+.adj-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 4px; }
+.adj-add > span { margin-right: 2px; font-weight: 700; }
+.adj-empty { padding: 4px 0 10px; }
