@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -474,79 +474,65 @@ function editorPage() {
     return `<div class="sumline"><span class="row">${avatar(pid, 'sm')}${esc(pname(pid))}${pid === d.payerId ? ' <span class="small muted">(paid)</span>' : ''}</span><span class="num">${fmt(p?.total || 0, cur)}</span></div>`;
   }).join('');
 
-  // Tabs keep the editor short: Items · People · Charges · Details.
-  if (state.editDraftId !== d.id) { state.editDraftId = d.id; state.editTab = d.isNew && parts.length < 2 ? 'people' : 'items'; }
-  const tab = state.editTab || 'items';
-  const unItems = d.items.filter(it => S.itemSplit(it)[S.UNASSIGNED]).length;
-  const badges = { items: unItems ? `<span class="tab-badge bad">${unItems}</span>` : '', people: `<span class="tab-badge">${parts.length}</span>`, charges: d.adjustments.length ? `<span class="tab-badge">${d.adjustments.length}</span>` : '', details: '' };
-  const sub = `<div class="etabs" role="tablist">${[['items', 'Items'], ['people', 'People'], ['charges', 'Charges'], ['details', 'Details']].map(([k, l]) => `<button role="tab" aria-selected="${tab === k}" class="${tab === k ? 'on' : ''}" data-act="etab" data-v="${k}">${l}${badges[k]}</button>`).join('')}</div>`;
-
-  const itemsTab = `${check}
-    <div class="card flush ${paint ? 'painting' : ''}">
-      <div class="row between" style="padding-right:12px"><h2>Items · Qty ${totalQty(d)}</h2>
-        <span class="row" style="gap:2px">${d.items.length && parts.length > 1 ? `<button class="btn sm ${paint ? 'tonal' : 'ghost'}" data-act="assign-mode">${paint ? 'Done' : 'By person'}</button>` : ''}${paint ? '' : `<button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button>`}</span></div>
-      ${paint ? `<div class="paintbar"><div class="small muted" style="margin-bottom:8px">Pick a person, then tap everything they had. Tap again to remove.</div><div class="chips">${parts.map(pid => chip(pid, state.brush === pid, 'brush')).join('')}</div></div>`
-        : d.items.length ? `<p class="small muted" style="margin:2px 16px 4px">Tap who had each item${parts.length > 1 ? ', or use “By person” to go one friend at a time' : ''}.</p>` : ''}
-      ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}
-    </div>
-    ${parts.length < 2 ? `<div class="banner warn">Only you are on this receipt. <a href="#" data-act="etab" data-v="people">Add the friends who were there</a> first.</div>` : ''}`;
-
-  const peopleTab = `
+  // One page, four numbered sections: Receipt · People · Items · Charges & split.
+  const sec = (n, title, extra = '') => `<div class="sec-head"><span class="sec-num">${n}</span><h2>${title}</h2>${extra}</div>`;
+  const html = `
+    ${check}
     <div class="card">
-      <h2>Who was there?</h2>
-      <div class="chips">${parts.map(pid => chip(pid, true, 'people')).join('')}<button class="chip dashed" data-act="people">${icon('plus', 'width=16 height=16')} Add friends</button></div>
-    </div>
-    <div class="card">
-      <h2>Paid by</h2>
-      <div class="chips">${parts.map(pid => chip(pid, d.payerId === pid, 'payer')).join('')}</div>
-    </div>
-    <div class="card" id="summary">
-      <h2>Split</h2>
-      ${split.unassigned ? `<div class="banner warn">${fmt(split.unassigned, cur)} not assigned yet.<div class="btns" style="margin-top:8px"><button class="btn sm" data-act="assign-rest">Give the rest to ${esc(pname(d.payerId))}</button>${parts.length > 1 ? '<button class="btn sm" data-act="split-rest">Split the rest equally</button>' : ''}</div></div>` : ''}
-      ${summary}
-      <p class="small muted" style="margin:8px 0 0">Includes each person's share of tax, charges and discounts.</p>
-    </div>`;
-
-  const chargesTab = `
-    <div class="card">
-      <h2>Tax, charges & discounts</h2>
-      <p class="small muted" style="margin-top:0">Shared in proportion to what each person ordered.</p>
-      ${d.adjustments.map(a => `<div class="adj-row"><input type="text" value="${esc(a.label)}" data-adj-label="${a.id}" aria-label="Label"><input type="text" inputmode="decimal" class="num" value="${a.amount.toFixed(2)}" data-adj-amount="${a.id}" aria-label="Amount"><button class="icon-btn" data-act="del-adj" data-id="${a.id}" aria-label="Remove">${icon('trash')}</button></div>`).join('')}
-      <div class="btns"><button class="btn sm" data-act="add-adj" data-kind="tax" data-label="SST 6%">+ SST 6%</button><button class="btn sm" data-act="add-adj" data-kind="service_charge" data-label="Service charge 10%">+ Service 10%</button><button class="btn sm" data-act="add-adj" data-kind="other" data-label="">+ Other</button></div>
-      <hr>
-      <div class="sumline"><span>Items</span><span class="num">${fmt(itemSum, cur)}</span></div>
-      ${d.adjustments.map(a => `<div class="sumline small muted"><span>${esc(a.label || 'Adjustment')}</span><span class="num">${fmt(S.toCents(a.amount), cur)}</span></div>`).join('')}
-      <div class="sumline total"><span>Total</span><span class="num">${fmt(total, cur)}</span></div>
-    </div>`;
-
-  const detailsTab = `
-    ${d.hasPhoto ? `<div class="card" style="padding:8px"><img class="thumb" id="draftimg" alt="Receipt photo" data-act="zoom-photo"></div>` : ''}
-    <div class="card">
+      ${sec(1, 'Receipt')}
       <div class="fields">
-        <label class="field full"><span>Shop / restaurant</span><input type="text" data-f="merchant" value="${esc(d.merchant)}" placeholder="e.g. Hock Kee"></label>
+        <div class="field full"><span>Shop / restaurant</span>
+          <div class="row" style="gap:10px">${d.hasPhoto ? `<img class="mini-thumb" id="draftimg" alt="Receipt photo" data-act="zoom-photo">` : ''}<input type="text" data-f="merchant" value="${esc(d.merchant)}" placeholder="e.g. Hock Kee" class="grow"></div></div>
         <label class="field"><span>Date</span><input type="date" data-f="date" value="${esc(d.date)}"></label>
         <label class="field"><span>Currency</span><select data-f="currency">${[...new Set([...CURRENCIES, cur])].map(c => `<option ${c === cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
-        ${state.groups.length ? `<label class="field full"><span>Group</span><select data-f="groupId"><option value="">None</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === d.groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>` : ''}
-        <label class="field full"><span>Note (optional)</span><input type="text" data-f="note" value="${esc(d.note)}" placeholder="e.g. Ali's birthday dinner"></label>
+        ${state.groups.length ? `<label class="field"><span>Group</span><select data-f="groupId"><option value="">None</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === d.groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>` : ''}
+        <label class="field ${state.groups.length ? '' : 'full'}"><span>Note</span><input type="text" data-f="note" value="${esc(d.note)}" placeholder="Optional"></label>
       </div>
     </div>
-    <button class="btn block danger" data-act="cancel-edit">${d.isNew ? 'Discard this receipt' : 'Discard changes'}</button>`;
 
-  const html = { items: itemsTab, people: peopleTab, charges: chargesTab, details: detailsTab }[tab];
+    <div class="card">
+      ${sec(2, 'People')}
+      <div class="chips">${parts.map(pid => chip(pid, true, 'people')).join('')}<button class="chip dashed" data-act="people">${icon('plus', 'width=16 height=16')} Add friends</button></div>
+      <div class="paidby"><span class="muted">Paid by</span><select data-f="payerId" aria-label="Paid by">${parts.map(pid => `<option value="${pid}" ${d.payerId === pid ? 'selected' : ''}>${esc(pname(pid))}</option>`).join('')}</select></div>
+    </div>
+
+    <div class="card flush ${paint ? 'painting' : ''}">
+      <div style="padding:0 6px 0 0">${sec(3, `Items · Qty ${totalQty(d)}`, `<span class="row" style="gap:2px;margin-left:auto">${d.items.length && parts.length > 1 ? `<button class="btn sm ${paint ? 'tonal' : 'ghost'}" data-act="assign-mode">${paint ? 'Done' : 'By person'}</button>` : ''}${paint ? '' : `<button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button>`}</span>`)}</div>
+      ${paint ? `<div class="paintbar"><div class="small muted" style="margin-bottom:8px">Pick a person, then tap everything they had. Tap again to remove.</div><div class="chips">${parts.map(pid => chip(pid, state.brush === pid, 'brush')).join('')}</div></div>`
+        : d.items.length ? `<p class="small muted" style="margin:0 16px 4px">${parts.length < 2 ? 'Add the friends who were there (step 2) first.' : 'Tap who had each item, or use “By person” to go one friend at a time.'}</p>` : ''}
+      ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}
+    </div>
+
+    <div class="card" id="summary">
+      ${sec(4, 'Charges & split')}
+      ${d.adjustments.map(a => `<div class="adj-row"><input type="text" value="${esc(a.label)}" data-adj-label="${a.id}" aria-label="Label"><input type="text" inputmode="decimal" class="num" value="${a.amount.toFixed(2)}" data-adj-amount="${a.id}" aria-label="Amount"><button class="icon-btn" data-act="del-adj" data-id="${a.id}" aria-label="Remove">${icon('trash')}</button></div>`).join('')}
+      <div class="btns"><button class="btn sm" data-act="add-adj" data-kind="tax" data-label="SST 6%">+ SST 6%</button><button class="btn sm" data-act="add-adj" data-kind="service_charge" data-label="Service charge 10%">+ Service 10%</button><button class="btn sm" data-act="add-adj" data-kind="other" data-label="">+ Other</button></div>
+      <div class="totals">
+        <div class="sumline"><span>Items</span><span class="num">${fmt(itemSum, cur)}</span></div>
+        <div class="sumline"><span>Tax, charges & discounts</span><span class="num">${fmt(total - itemSum, cur)}</span></div>
+        <div class="sumline total"><span>Total</span><span class="num">${fmt(total, cur)}</span></div>
+      </div>
+      <div class="split-box">
+        <div class="small muted" style="font-weight:700;margin-bottom:4px">Who owes what <span style="font-weight:500">· charges shared by what each person ordered</span></div>
+        ${split.unassigned ? `<div class="banner warn" style="margin:8px 0">${fmt(split.unassigned, cur)} not assigned yet.<div class="btns" style="margin-top:8px"><button class="btn sm" data-act="assign-rest">Give the rest to ${esc(pname(d.payerId))}</button>${parts.length > 1 ? '<button class="btn sm" data-act="split-rest">Split the rest equally</button>' : ''}</div></div>` : ''}
+        ${summary}
+      </div>
+    </div>
+    <button class="btn block ghost danger" data-act="cancel-edit" style="margin-top:4px">${d.isNew ? 'Discard this receipt' : 'Discard changes'}</button>`;
   const bottom = `<div class="savebar"><div class="grow" style="min-width:0"><div class="savebar-total num">${fmt(total, cur)}</div>
       <div class="small ${split.unassigned ? 'bad' : 'muted'}">${!d.items.length ? 'No items yet' : split.unassigned ? `${fmt(split.unassigned, cur)} not assigned` : '✓ Everything assigned'}</div></div>
     <button class="btn primary" data-act="save-receipt">${icon('check', 'width=20 height=20')} Save</button></div>`;
   return {
-    title: d.merchant || (d.isNew ? 'New receipt' : 'Edit receipt'), tab: 'new', html, sub, bottom,
+    title: d.isNew ? 'New receipt' : 'Edit receipt', tab: 'new', html, bottom,
     back: d.isNew ? '#/new' : `#/r/${d.id}`,
-    after: () => { if (tab === 'details') setPhoto('#draftimg', d.isNew ? 'draft' : d.id); },
+    after: () => setPhoto('#draftimg', d.isNew ? 'draft' : d.id),
   };
 }
 
 async function setPhoto(sel, key) {
   const img = $(sel); if (!img) return;
   const blob = key === 'draft' ? state.draftPhoto : await db.get('photos', key);
-  if (blob) img.src = URL.createObjectURL(blob); else img.closest('.card')?.remove();
+  if (blob) img.src = URL.createObjectURL(blob); else if (img.classList.contains('mini-thumb')) img.remove(); else img.closest('.card')?.remove();
 }
 
 function editItemSheet(id) {
@@ -617,9 +603,7 @@ async function saveReceipt() {
   if (!d.items.length) return toast('Add at least one item.');
   const split = S.splitReceipt(d);
   if (split.unassigned) {
-    state.editTab = d.items.some(it => S.itemSplit(it)[S.UNASSIGNED]) ? 'items' : 'people';
-    render();
-    document.querySelector('.item.unassigned')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    (document.querySelector('.item.unassigned') || $('#summary'))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return toast('Some items are not assigned to anyone yet.');
   }
   if (!d.participants.includes(d.payerId)) d.payerId = d.participants[0];
@@ -1451,7 +1435,6 @@ const actions = {
   'unit-inc': el => { const it = itemOf(el); const used = Object.values(it.shares).reduce((s, n) => s + n, 0); if (used >= it.qty) return toast(`All ${it.qty} already assigned.`); it.shares[el.dataset.pid] = (it.shares[el.dataset.pid] || 0) + 1; changed(); },
   'unit-dec': el => { const it = itemOf(el); const pid = el.dataset.pid; if (!it.shares[pid]) return; it.shares[pid]--; if (!it.shares[pid]) delete it.shares[pid]; changed(); },
   'edit-item': el => editItemSheet(el.dataset.id),
-  'etab': el => { state.editTab = el.dataset.v; render(); scrollTo(0, 0); },
   'assign-mode': () => { state.assignMode = !state.assignMode; rerender(); },
   'brush': el => { state.brush = el.dataset.pid; rerender(); },
   'paint': el => {
@@ -1583,7 +1566,7 @@ document.addEventListener('change', async e => {
     toast('Saved', 1200); return;
   }
   if (!state.draft) return;
-  if (t.matches('[data-f]')) { state.draft[t.dataset.f] = t.value; if (t.dataset.f === 'currency') rerender(); saveDraft(); }
+  if (t.matches('[data-f]')) { state.draft[t.dataset.f] = t.value; if (t.dataset.f === 'currency' || t.dataset.f === 'payerId') rerender(); saveDraft(); }
   if (t.matches('[data-adj-amount]')) { const a = state.draft.adjustments.find(x => x.id === t.dataset.adjAmount); a.amount = parseAmount(t.value); changed(); }
 });
 document.addEventListener('input', e => {
