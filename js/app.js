@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -442,6 +442,10 @@ function editorPage() {
   const paint = state.assignMode;
   if (paint && !parts.includes(state.brush)) state.brush = parts.find(p => p !== ME) || parts[0];
   const itemHtml = d.items.map(it => {
+    if (S.toCents(it.amount) === 0) {
+      // Free / included items (e.g. sides in a set) cost nothing, so they don't need assigning.
+      return `<div class="item zero" data-item="${it.id}"><div class="head" data-act="edit-item" data-id="${it.id}"><span class="name">${esc(it.name)}<span class="qty-line">Included · no charge</span></span><span class="num">${fmt(0, cur)}</span></div></div>`;
+    }
     const parts2 = S.itemSplit(it);
     const un = parts2[S.UNASSIGNED] || 0;
     const takers = Object.keys(it.shares).filter(k => it.shares[k] > 0);
@@ -474,12 +478,22 @@ function editorPage() {
     return `<div class="sumline"><span class="row">${avatar(pid, 'sm')}${esc(pname(pid))}${pid === d.payerId ? ' <span class="small muted">(paid)</span>' : ''}</span><span class="num">${fmt(p?.total || 0, cur)}</span></div>`;
   }).join('');
 
-  // One page, four numbered sections: Receipt · People · Items · Charges & split.
-  const sec = (n, title, extra = '') => `<div class="sec-head"><span class="sec-num">${n}</span><h2>${title}</h2>${extra}</div>`;
-  const html = `
-    ${check}
-    <div class="card">
-      ${sec(1, 'Receipt')}
+  // One page, four numbered sections. Tap a section's header to fold it; folded sections show a
+  // one-line summary, and the choice is remembered (settings.folded).
+  const folded = state.settings.folded || {};
+  const unCount = d.items.filter(it => S.itemSplit(it)[S.UNASSIGNED]).length;
+  const section = (key, n, title, summaryText, body, { extra = '', flush = false, cls = '' } = {}) => {
+    const shut = !!folded[key];
+    return `<div class="card sec ${flush && !shut ? 'flush' : ''} ${shut ? 'folded' : ''} ${cls}" ${key === 'split' ? 'id="summary"' : ''}>
+      <div class="sec-head" data-act="toggle-sec" data-k="${key}" role="button" aria-expanded="${!shut}">
+        <span class="sec-num">${n}</span><h2>${title}</h2>
+        ${shut ? `<span class="sec-sum ellipsis">${summaryText}</span>` : extra}
+        <span class="sec-chev">${icon('chev', 'width=18 height=18')}</span>
+      </div>
+      ${shut ? '' : body}
+    </div>`;
+  };
+  const receiptBody = `
       <div class="fields">
         <div class="field full"><span>Shop / restaurant</span>
           <div class="row" style="gap:10px">${d.hasPhoto ? `<img class="mini-thumb" id="draftimg" alt="Receipt photo" data-act="zoom-photo">` : ''}<input type="text" data-f="merchant" value="${esc(d.merchant)}" placeholder="e.g. Hock Kee" class="grow"></div></div>
@@ -487,24 +501,15 @@ function editorPage() {
         <label class="field"><span>Currency</span><select data-f="currency">${[...new Set([...CURRENCIES, cur])].map(c => `<option ${c === cur ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
         ${state.groups.length ? `<label class="field"><span>Group</span><select data-f="groupId"><option value="">None</option>${state.groups.map(g => `<option value="${g.id}" ${g.id === d.groupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>` : ''}
         <label class="field ${state.groups.length ? '' : 'full'}"><span>Note</span><input type="text" data-f="note" value="${esc(d.note)}" placeholder="Optional"></label>
-      </div>
-    </div>
-
-    <div class="card">
-      ${sec(2, 'People')}
+      </div>`;
+  const peopleBody = `
       <div class="chips">${parts.map(pid => chip(pid, true, 'people')).join('')}<button class="chip dashed" data-act="people">${icon('plus', 'width=16 height=16')} Add friends</button></div>
-      <div class="paidby"><span class="muted">Paid by</span><select data-f="payerId" aria-label="Paid by">${parts.map(pid => `<option value="${pid}" ${d.payerId === pid ? 'selected' : ''}>${esc(pname(pid))}</option>`).join('')}</select></div>
-    </div>
-
-    <div class="card flush ${paint ? 'painting' : ''}">
-      <div style="padding:0 6px 0 0">${sec(3, `Items · Qty ${totalQty(d)}`, `<span class="row" style="gap:2px;margin-left:auto">${d.items.length && parts.length > 1 ? `<button class="btn sm ${paint ? 'tonal' : 'ghost'}" data-act="assign-mode">${paint ? 'Done' : 'By person'}</button>` : ''}${paint ? '' : `<button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button>`}</span>`)}</div>
+      <div class="paidby"><span class="muted">Paid by</span><select data-f="payerId" aria-label="Paid by">${parts.map(pid => `<option value="${pid}" ${d.payerId === pid ? 'selected' : ''}>${esc(pname(pid))}</option>`).join('')}</select></div>`;
+  const itemsBody = `
       ${paint ? `<div class="paintbar"><div class="small muted" style="margin-bottom:8px">Pick a person, then tap everything they had. Tap again to remove.</div><div class="chips">${parts.map(pid => chip(pid, state.brush === pid, 'brush')).join('')}</div></div>`
         : d.items.length ? `<p class="small muted" style="margin:0 16px 4px">${parts.length < 2 ? 'Add the friends who were there (step 2) first.' : 'Tap who had each item, or use “By person” to go one friend at a time.'}</p>` : ''}
-      ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}
-    </div>
-
-    <div class="card" id="summary">
-      ${sec(4, 'Charges & split')}
+      ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}`;
+  const splitBody = `
       ${d.adjustments.map(a => `<div class="adj-row"><input type="text" value="${esc(a.label)}" data-adj-label="${a.id}" aria-label="Label"><input type="text" inputmode="decimal" class="num" value="${a.amount.toFixed(2)}" data-adj-amount="${a.id}" aria-label="Amount"><button class="icon-btn" data-act="del-adj" data-id="${a.id}" aria-label="Remove">${icon('trash')}</button></div>`).join('')}
       <div class="btns"><button class="btn sm" data-act="add-adj" data-kind="tax" data-label="SST 6%">+ SST 6%</button><button class="btn sm" data-act="add-adj" data-kind="service_charge" data-label="Service charge 10%">+ Service 10%</button><button class="btn sm" data-act="add-adj" data-kind="other" data-label="">+ Other</button></div>
       <div class="totals">
@@ -516,8 +521,14 @@ function editorPage() {
         <div class="small muted" style="font-weight:700;margin-bottom:4px">Who owes what <span style="font-weight:500">· charges shared by what each person ordered</span></div>
         ${split.unassigned ? `<div class="banner warn" style="margin:8px 0">${fmt(split.unassigned, cur)} not assigned yet.<div class="btns" style="margin-top:8px"><button class="btn sm" data-act="assign-rest">Give the rest to ${esc(pname(d.payerId))}</button>${parts.length > 1 ? '<button class="btn sm" data-act="split-rest">Split the rest equally</button>' : ''}</div></div>` : ''}
         ${summary}
-      </div>
-    </div>
+      </div>`;
+  const itemsExtra = `<span class="row" style="gap:2px;margin-left:auto">${d.items.length && parts.length > 1 ? `<button class="btn sm ${paint ? 'tonal' : 'ghost'}" data-act="assign-mode">${paint ? 'Done' : 'By person'}</button>` : ''}${paint ? '' : `<button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button>`}</span>`;
+  const html = `
+    ${check}
+    ${section('receipt', 1, 'Receipt', esc([d.merchant || 'No name', fmtDate(d.date)].filter(Boolean).join(' · ')), receiptBody)}
+    ${section('people', 2, 'People', `${esc(parts.map(pname).join(', '))} · paid by ${esc(pname(d.payerId))}`, peopleBody)}
+    ${section('items', 3, `Items · Qty ${totalQty(d)}`, `${d.items.length} items${unCount ? ` · <span class="bad">${unCount} to assign</span>` : ' · all assigned'}`, itemsBody, { extra: itemsExtra, flush: true, cls: paint ? 'painting' : '' })}
+    ${section('split', 4, 'Charges & split', `Total ${fmt(total, cur)}`, splitBody)}
     <button class="btn block ghost danger" data-act="cancel-edit" style="margin-top:4px">${d.isNew ? 'Discard this receipt' : 'Discard changes'}</button>`;
   const bottom = `<div class="savebar"><div class="grow" style="min-width:0"><div class="savebar-total num">${fmt(total, cur)}</div>
       <div class="small ${split.unassigned ? 'bad' : 'muted'}">${!d.items.length ? 'No items yet' : split.unassigned ? `${fmt(split.unassigned, cur)} not assigned` : '✓ Everything assigned'}</div></div>
@@ -603,6 +614,7 @@ async function saveReceipt() {
   if (!d.items.length) return toast('Add at least one item.');
   const split = S.splitReceipt(d);
   if (split.unassigned) {
+    if (state.settings.folded?.items) { state.settings.folded = { ...state.settings.folded, items: false }; await saveSettings(); render(); }
     (document.querySelector('.item.unassigned') || $('#summary'))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     return toast('Some items are not assigned to anyone yet.');
   }
@@ -1435,6 +1447,10 @@ const actions = {
   'unit-inc': el => { const it = itemOf(el); const used = Object.values(it.shares).reduce((s, n) => s + n, 0); if (used >= it.qty) return toast(`All ${it.qty} already assigned.`); it.shares[el.dataset.pid] = (it.shares[el.dataset.pid] || 0) + 1; changed(); },
   'unit-dec': el => { const it = itemOf(el); const pid = el.dataset.pid; if (!it.shares[pid]) return; it.shares[pid]--; if (!it.shares[pid]) delete it.shares[pid]; changed(); },
   'edit-item': el => editItemSheet(el.dataset.id),
+  'toggle-sec': async el => {
+    const k = el.dataset.k, f = { ...(state.settings.folded || {}) };
+    f[k] = !f[k]; state.settings.folded = f; await saveSettings(); rerender();
+  },
   'assign-mode': () => { state.assignMode = !state.assignMode; rerender(); },
   'brush': el => { state.brush = el.dataset.pid; rerender(); },
   'paint': el => {

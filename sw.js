@@ -1,5 +1,5 @@
 // Offline support. Network first (so updates show up straight away), cache as fallback when offline.
-const CACHE = 'split-receipts-v20';
+const CACHE = 'split-receipts-v21';
 const SHELL = ['./', 'index.html', 'styles.css', 'js/app.js', 'js/db.js', 'js/scan.js', 'js/split.js', 'manifest.json', 'icon.svg', 'icon-192.png'];
 
 self.addEventListener('install', e => {

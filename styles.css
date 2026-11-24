@@ -295,41 +295,59 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
   main { padding-top: 8px; }
 }
 
-/* ================= Lively style ================= */
+/* ================= Lively style =================
+   Backgrounds are tinted from the chosen accent, so every accent (rose, teal, lavender…)
+   gets matching light and dark surfaces instead of clashing with a fixed plum. */
 :root[data-style="lively"] {
-  --bg: #fbf4f6; --surface: #ffffff; --surface-2: #f8edf1; --surface-3: #f0dfe6; --sheet: #ffffff;
-  --ink: #2a1720; --ink-2: #6f5762; --ink-3: #a08a94; --line: #f0e2e8;
+  --bg: color-mix(in srgb, var(--accent) 6%, #f6f7f6);
+  --surface: #ffffff;
+  --surface-2: color-mix(in srgb, var(--accent) 6%, #f2f4f3);
+  --surface-3: color-mix(in srgb, var(--accent) 11%, #e7ebe9);
+  --sheet: #ffffff;
+  --ink: #1b1d1c; --ink-2: #5c6461; --ink-3: #8b938f; --line: color-mix(in srgb, var(--accent) 10%, #e6e9e8);
   --good: #1f9d6c; --bad: #e0435c; --warn: #c27a00;
-  --shadow: 0 1px 2px rgba(120, 40, 70, .05), 0 8px 26px rgba(150, 50, 90, .08);
-  --glass: rgba(251, 244, 246, .8); --tabs-glass: rgba(255, 255, 255, .86);
+  --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 8px 26px color-mix(in srgb, var(--accent) 9%, transparent);
+  --glass: color-mix(in srgb, var(--bg) 84%, transparent); --tabs-glass: rgba(255, 255, 255, .88);
   --accent-soft: color-mix(in srgb, var(--accent) 13%, var(--surface));
   --radius: 22px;
-  --blob-a: color-mix(in srgb, var(--accent) 22%, transparent);
-  --blob-b: color-mix(in srgb, var(--accent-2) 26%, transparent);
+  --blob-a: color-mix(in srgb, var(--accent) 20%, transparent);
+  --blob-b: color-mix(in srgb, var(--accent-2) 22%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-style="lively"]:not([data-theme="light"]) {
-    --bg: #110a0f; --surface: #1b1218; --surface-2: #251921; --surface-3: #30222b; --sheet: #1f151c;
-    --ink: #f7ecf1; --ink-2: #c4aab6; --ink-3: #8a7380; --line: rgba(255, 220, 235, .08);
+    --bg: color-mix(in srgb, var(--accent) 6%, #0b0d0c);
+    --surface: color-mix(in srgb, var(--accent) 8%, #1a1d1c);
+    --surface-2: color-mix(in srgb, var(--accent) 10%, #262a29);
+    --surface-3: color-mix(in srgb, var(--accent) 13%, #313635);
+    --sheet: color-mix(in srgb, var(--accent) 9%, #1e2221);
+    --ink: #f1f4f3; --ink-2: #b3bcb8; --ink-3: #808a86; --line: rgba(255, 255, 255, .09);
     --good: #5fdcaa; --bad: #ff8fa3; --warn: #ffc56e;
-    --card-border: rgba(255, 210, 230, .07); --seg-bg: #0d070b; --seg-on: var(--surface-3);
-    --glass: rgba(17, 10, 15, .78); --tabs-glass: rgba(27, 18, 24, .86);
-    --accent-text: color-mix(in srgb, var(--accent) 60%, #fff);
+    --card-border: rgba(255, 255, 255, .08);
+    --seg-bg: color-mix(in srgb, var(--accent) 5%, #0e100f); --seg-on: var(--surface-3);
+    --glass: color-mix(in srgb, var(--bg) 82%, transparent); --tabs-glass: color-mix(in srgb, var(--surface) 90%, transparent);
+    --accent-text: color-mix(in srgb, var(--accent) 62%, #fff);
     --accent-soft: color-mix(in srgb, var(--accent) 22%, var(--surface));
-    --blob-a: color-mix(in srgb, var(--accent) 16%, transparent);
-    --blob-b: color-mix(in srgb, var(--accent-2) 12%, transparent);
+    --blob-a: color-mix(in srgb, var(--accent) 14%, transparent);
+    --blob-b: color-mix(in srgb, var(--accent-2) 10%, transparent);
+    --shadow: none;
   }
 }
 :root[data-style="lively"][data-theme="dark"] {
-  --bg: #110a0f; --surface: #1b1218; --surface-2: #251921; --surface-3: #30222b; --sheet: #1f151c;
-  --ink: #f7ecf1; --ink-2: #c4aab6; --ink-3: #8a7380; --line: rgba(255, 220, 235, .08);
+  --bg: color-mix(in srgb, var(--accent) 6%, #0b0d0c);
+  --surface: color-mix(in srgb, var(--accent) 8%, #1a1d1c);
+  --surface-2: color-mix(in srgb, var(--accent) 10%, #262a29);
+  --surface-3: color-mix(in srgb, var(--accent) 13%, #313635);
+  --sheet: color-mix(in srgb, var(--accent) 9%, #1e2221);
+  --ink: #f1f4f3; --ink-2: #b3bcb8; --ink-3: #808a86; --line: rgba(255, 255, 255, .09);
   --good: #5fdcaa; --bad: #ff8fa3; --warn: #ffc56e;
-  --card-border: rgba(255, 210, 230, .07); --seg-bg: #0d070b; --seg-on: var(--surface-3);
-  --glass: rgba(17, 10, 15, .78); --tabs-glass: rgba(27, 18, 24, .86);
-  --accent-text: color-mix(in srgb, var(--accent) 60%, #fff);
+  --card-border: rgba(255, 255, 255, .08);
+  --seg-bg: color-mix(in srgb, var(--accent) 5%, #0e100f); --seg-on: var(--surface-3);
+  --glass: color-mix(in srgb, var(--bg) 82%, transparent); --tabs-glass: color-mix(in srgb, var(--surface) 90%, transparent);
+  --accent-text: color-mix(in srgb, var(--accent) 62%, #fff);
   --accent-soft: color-mix(in srgb, var(--accent) 22%, var(--surface));
-  --blob-a: color-mix(in srgb, var(--accent) 16%, transparent);
-  --blob-b: color-mix(in srgb, var(--accent-2) 12%, transparent);
+  --blob-a: color-mix(in srgb, var(--accent) 14%, transparent);
+  --blob-b: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  --shadow: none;
 }
 [data-style="lively"] body { font-family: "Nunito", "Plus Jakarta Sans", system-ui, sans-serif; font-weight: 500; }
 /* soft glow behind the page */
@@ -454,3 +472,19 @@ nav.tabs.bar { padding: 10px max(16px, calc((100% - 608px) / 2)) calc(10px + env
 .chip.dashed { padding: 2px 12px 2px 8px; }
 .chip.on { box-shadow: 0 2px 6px color-mix(in srgb, var(--c, var(--accent)) 28%, transparent); }
 div.field > span:first-child { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+
+.item.zero { padding-top: 10px; padding-bottom: 10px; opacity: .6; }
+.item.zero .name { font-weight: 600; }
+
+/* collapsible editor sections */
+.sec .sec-head { cursor: pointer; user-select: none; -webkit-user-select: none; min-height: 28px; }
+.sec .sec-head h2 { flex: none; }
+.sec-sum { flex: 1; min-width: 0; text-align: right; font-size: 13.5px; color: var(--ink-2); font-weight: 600; }
+.sec-chev { display: flex; color: var(--ink-3); transform: rotate(90deg); transition: transform .2s; margin-left: 2px; }
+.sec.folded .sec-chev { transform: none; }
+.sec.folded { padding-top: 14px; padding-bottom: 14px; }
+.sec.folded .sec-head { margin-bottom: 0; }
+.card.flush.sec .sec-head { padding: 12px 14px 2px 16px; }
+.sec:not(.flush):not(.folded) .sec-head { margin-bottom: 14px; }
+.sec-head .row .btn { padding-left: 8px; padding-right: 8px; }
+.sec-head h2 + .sec-chev { margin-left: auto; }
