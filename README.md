@@ -15,7 +15,9 @@ A phone-friendly web app for splitting bills with friends. Snap a receipt, tap w
 - **Image export.** Share or save a picture of the whole split, of one person's share, or of a friend's statement.
 - Every item shows its quantity (and unit price), and each receipt shows its total quantity.
 - **Receipt photos** are kept with each receipt.
-- **CSV export** and **full backup / restore** (JSON, optionally with photos).
+- **Assign by person**: pick a friend, then tap everything they had (great for long receipts).
+- **Payment QR**: add your DuitNow/bank QR once; report, statement and share images come with a separate "Scan to pay" image (with the amount when it's for one person).
+- **CSV export** and **full backup / restore** (JSON, optionally with photos), with a reminder on Home when a backup is due (after 10 changes or a month) and one-tap sharing to Google Drive or WhatsApp.
 - Two styles: **Lively** (rose & peach, rounded Nunito font; default) and **Classic**, each in light/dark with accent colours. Works offline and can be installed on the home screen.
 
 All data stays on your phone (IndexedDB). There is no server and no account.

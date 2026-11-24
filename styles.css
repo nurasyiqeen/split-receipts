@@ -391,3 +391,17 @@ dialog.photo img { width: 100%; height: 100%; object-fit: contain; }
 .multi-row:active { background: var(--surface-2); }
 .multi-row input { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--accent); }
 .multi-row:first-child { border-bottom: 1px solid var(--line); border-radius: 10px 10px 0 0; margin-bottom: 4px; font-weight: 700; }
+
+/* assign by person */
+.card.flush.painting { overflow: visible; }
+.paintbar {
+  position: sticky; top: calc(env(safe-area-inset-top) + 58px); z-index: 3;
+  background: var(--surface); padding: 10px 16px 12px; border-bottom: 1px solid var(--line);
+  box-shadow: 0 6px 12px -8px rgba(0, 0, 0, .25);
+}
+.item.paint { cursor: pointer; user-select: none; -webkit-user-select: none; transition: background .15s; }
+.item.paint:active { background: var(--surface-2); }
+.item.paint.mine { background: color-mix(in srgb, var(--c) 15%, transparent); }
+.item.paint.mine::after { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 3px 3px 0; background: var(--c); }
+.item.paint:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.paint-tick { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 15px; }

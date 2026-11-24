@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.3.4';
+const VERSION = '1.4.0';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -71,6 +71,7 @@ async function load() {
   Object.assign(state, { people, groups, receipts, payments, settings: { ...DEFAULT_SETTINGS, ...(settings || {}) }, draft: draft || null });
   if (settings && !settings.style) { state.settings.style = 'lively'; state.settings.accent = DEFAULT_SETTINGS.accent; await saveSettings(); }
   if (draft) state.draftPhoto = await db.get('photos', 'draft') || null;
+  state.hasQr = (await db.keys('photos')).includes('payqr');
   if (!state.people.find(p => p.id === ME)) {
     const me = { id: ME, name: 'Me', color: '#475569' };
     state.people.push(me);
@@ -78,8 +79,13 @@ async function load() {
   }
 }
 const saveSettings = () => db.put('kv', state.settings, 'settings');
+function noteChange() {
+  state.settings.changes = (state.settings.changes || 0) + 1;
+  saveSettings();
+}
 async function putRecord(store, rec) {
   await db.put(store, rec);
+  noteChange();
   const list = state[store];
   const i = list.findIndex(x => x.id === rec.id);
   if (i >= 0) list[i] = rec; else list.push(rec);
@@ -87,6 +93,7 @@ async function putRecord(store, rec) {
 }
 async function delRecord(store, id) {
   await db.del(store, id);
+  noteChange();
   state[store] = state[store].filter(x => x.id !== id);
 }
 let draftTimer;
@@ -188,6 +195,25 @@ function renderTabs(tab) {
 }
 
 // ---------- pages ----------
+// ---------- backup reminders ----------
+function ago(ms) {
+  const d = Math.floor((Date.now() - ms) / 864e5);
+  return d < 1 ? 'today' : d === 1 ? 'yesterday' : d < 14 ? `${d} days ago` : d < 60 ? `${Math.round(d / 7)} weeks ago` : `${Math.round(d / 30)} months ago`;
+}
+function backupDue() {
+  const s = state.settings;
+  if (!state.receipts.length) return false;
+  if (s.backupSnooze && Date.now() < s.backupSnooze) return false;
+  if (!s.lastBackup) return state.receipts.length >= 3; // never backed up
+  if (!(s.changes > 0)) return false;
+  return s.changes >= 10 || Date.now() - s.lastBackup >= 30 * 864e5;
+}
+function backupBanner() {
+  const s = state.settings;
+  return `<div class="banner warn"><strong>💾 Time for a backup</strong><br>${s.lastBackup ? `Last backup ${ago(s.lastBackup)} · ${s.changes} change${s.changes === 1 ? '' : 's'} since.` : `You haven't backed up your ${state.receipts.length} receipts yet.`} Your data only lives on this phone.
+    <div class="btns" style="margin-top:10px"><button class="btn sm" data-act="backup-later">Later</button><button class="btn sm" data-act="backup">Back up now</button></div></div>`;
+}
+
 function homePage() {
   const bal = balances();
   const rows = friends(true).map(f => ({ f, b: S.balanceWith(bal, ME, f.id) })).filter(x => Object.keys(x.b).length);
@@ -197,8 +223,10 @@ function homePage() {
   const between = [...bal].filter(([k, v]) => v && !k.split('|').slice(0, 2).includes(ME));
   const recent = [...state.receipts].sort(byDateDesc).slice(0, 5);
   const noKey = !state.settings.apiKey;
+  const due = backupDue();
 
   const html = `
+    ${due ? backupBanner() : ''}
     ${noKey ? `<div class="banner warn">To scan receipts, add a free Gemini API key in <a href="#/settings">Settings</a>. You can still type receipts in by hand.</div>` : ''}
     <div class="hero">
       <div class="card"><div class="muted small">Owed to you</div><div class="big-amount num good" style="font-size:24px">${fmtMulti(owed)}</div></div>
@@ -403,10 +431,22 @@ function editorPage() {
 
   const chip = (pid, on, act, extra = '') => `<button class="chip ${on ? 'on' : ''}" style="--c:${person(pid).color}" data-act="${act}" data-pid="${pid}" ${extra}>${avatar(pid)}${esc(pname(pid))}</button>`;
 
+  const paint = state.assignMode;
+  if (paint && !parts.includes(state.brush)) state.brush = parts.find(p => p !== ME) || parts[0];
   const itemHtml = d.items.map(it => {
     const parts2 = S.itemSplit(it);
     const un = parts2[S.UNASSIGNED] || 0;
     const takers = Object.keys(it.shares).filter(k => it.shares[k] > 0);
+    if (paint) {
+      // Assign-by-person: the whole card is one big tap target for the selected person.
+      const mine = it.shares[state.brush] > 0;
+      const unitMode = it.byUnit && it.qty > 1;
+      const who = takers.map(pid => `<span class="row" style="gap:3px">${avatar(pid, 'sm')}${unitMode ? `<span class="small muted">×${it.shares[pid]}</span>` : ''}</span>`).join('');
+      return `<div class="item paint ${mine ? 'mine' : ''} ${un ? 'unassigned' : ''}" data-act="paint" data-item="${it.id}" style="--c:${person(state.brush).color}">
+        <div class="head"><span class="name">${esc(it.name)}${qtyLine(it, cur)}</span><span class="num">${fmt(S.toCents(it.amount), cur)}</span></div>
+        <div class="row" style="margin-top:8px;gap:6px;min-height:28px">${who || '<span class="small bad">Not assigned yet</span>'}${unitMode ? `<span class="small muted" style="margin-left:4px">${Object.values(it.shares).reduce((a, n) => a + n, 0)} of ${it.qty}</span>` : ''}${mine ? '<span class="paint-tick" aria-label="Selected">✓</span>' : ''}</div>
+      </div>`;
+    }
     let hint = '';
     if (it.byUnit && it.qty > 1) {
       const used = Object.values(it.shares).reduce((s, n) => s + n, 0);
@@ -441,9 +481,11 @@ function editorPage() {
       <h2>Who was there?</h2>
       <div class="chips">${parts.map(pid => chip(pid, true, 'people')).join('')}<button class="chip dashed" data-act="people">${icon('plus', 'width=16 height=16')} Add friends</button></div>
     </div>
-    <div class="card flush">
-      <div class="row between" style="padding-right:12px"><h2>Items · Qty ${totalQty(d)}</h2><button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button></div>
-      ${d.items.length ? '<p class="small muted" style="margin:2px 16px 4px">Tap who had each item.</p>' : ''}
+    <div class="card flush ${paint ? 'painting' : ''}">
+      <div class="row between" style="padding-right:12px"><h2>Items · Qty ${totalQty(d)}</h2>
+        <span class="row" style="gap:2px">${d.items.length && parts.length > 1 ? `<button class="btn sm ${paint ? 'primary' : 'ghost'}" data-act="assign-mode">${paint ? 'Done' : 'By person'}</button>` : ''}${paint ? '' : `<button class="btn sm ghost" data-act="add-item">${icon('plus', 'width=16 height=16')} Item</button>`}</span></div>
+      ${paint ? `<div class="paintbar"><div class="small muted" style="margin-bottom:8px">Pick a person, then tap everything they had. Tap again to remove.</div><div class="chips">${parts.map(pid => chip(pid, state.brush === pid, 'brush')).join('')}</div></div>`
+        : d.items.length ? `<p class="small muted" style="margin:2px 16px 4px">Tap who had each item${parts.length > 1 ? ', or use “By person” to go one friend at a time' : ''}.</p>` : ''}
       ${itemHtml || '<div class="empty">No items yet. Add them with “+ Item”.</div>'}
     </div>
     <div class="card">
@@ -958,6 +1000,44 @@ async function makeImages({ title, subtitle, big, bigNote, sections, footer }) {
   }));
 }
 
+// Separate "Scan to pay" image with your payment QR (and the amount when it's for one person).
+async function makeQrPage({ amount, who } = {}) {
+  const blob = await db.get('photos', 'payqr');
+  if (!blob) return null;
+  const qr = await createImageBitmap(blob);
+  const W = 1080, H = 1350, P = 64, accent = state.settings.accent;
+  const accent2 = state.settings.style === 'lively' && LIVELY[accent] ? LIVELY[accent] : accent;
+  const F = (w, px) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+  const grad = ctx.createLinearGradient(0, 0, W, 240); grad.addColorStop(0, accent); grad.addColorStop(1, accent2);
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, W, 220);
+  ctx.fillStyle = '#fff'; ctx.font = F(800, 60); ctx.fillText('Scan to pay', P, 108);
+  ctx.globalAlpha = .9; ctx.font = F(500, 34); ctx.fillText(`Pay ${imgName(ME)}`, P, 162); ctx.globalAlpha = 1;
+  // QR, as large as fits, centred
+  const box = amount ? 700 : 800, top = 270;
+  const scale = Math.min(box / qr.width, box / qr.height);
+  const w = qr.width * scale, h = qr.height * scale, x = (W - w) / 2;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(qr, x, top, w, h);
+  let y = top + h + 70;
+  ctx.textAlign = 'center';
+  if (amount) {
+    ctx.fillStyle = '#5d6661'; ctx.font = F(500, 30); ctx.fillText(who ? `${who} · amount to pay` : 'Amount to pay', W / 2, y); y += 70;
+    ctx.fillStyle = '#1b1f1d'; ctx.font = F(800, 64); ctx.fillText(amount, W / 2, y); y += 60;
+  }
+  if (state.settings.qrLabel) { ctx.fillStyle = '#5d6661'; ctx.font = F(600, 32); ctx.fillText(state.settings.qrLabel, W / 2, Math.min(y + 10, H - 90)); }
+  ctx.fillStyle = accent; ctx.font = F(650, 26); ctx.fillText('Split Receipts', W / 2, H - 40);
+  return new Promise(res => c.toBlob(res, 'image/png'));
+}
+const wantQr = spec => spec.qr && state.hasQr && state.settings.qrAttach !== false;
+async function withQr(spec, blobs) {
+  if (!wantQr(spec)) return blobs;
+  const q = await makeQrPage(spec.qr);
+  return q ? [...blobs, q] : blobs;
+}
+
 function receiptImageSpec(r) {
   const split = S.splitReceipt(r);
   const cur = r.currency;
@@ -969,7 +1049,7 @@ function receiptImageSpec(r) {
   sections.push({ heading: `Receipt · Qty ${totalQty(r)}`, lines: [
     ['Items', fmt(S.itemsTotal(r), cur)], ...r.adjustments.map(a => [a.label, fmt(S.toCents(a.amount), cur)]), ['Total', fmt(split.total, cur), true]] });
   return { title: r.merchant, subtitle: `${fmtDate(r.date)} · Paid by ${imgName(r.payerId)}`, big: fmt(split.total, cur), sections,
-    footer: 'Tax, service charge & discounts shared by what each person ordered.' };
+    footer: 'Tax, service charge & discounts shared by what each person ordered.', qr: r.payerId === ME ? {} : null };
 }
 function personImageSpec(r, pid) {
   const p = S.splitReceipt(r).people[pid];
@@ -978,7 +1058,8 @@ function personImageSpec(r, pid) {
     bigNote: `${imgName(pid)}'s share${r.payerId !== pid ? ` · pay ${imgName(r.payerId)}` : ''}`,
     sections: [{ heading: imgName(pid), color: person(pid).color, amount: fmt(p.total, cur),
       lines: [...p.lines.map(l => [shareLineLabel(l), fmt(l.amount, cur)]), ...(p.extra ? [['Tax, charges & discounts', fmt(p.extra, cur)]] : [])] }],
-    footer: 'Tax, service charge & discounts shared by what each person ordered.' };
+    footer: 'Tax, service charge & discounts shared by what each person ordered.',
+    qr: r.payerId === ME && pid !== ME ? { amount: fmt(p.total, cur), who: imgName(pid) } : null };
 }
 function friendImageSpec(fid) {
   const f = person(fid);
@@ -992,10 +1073,11 @@ function friendImageSpec(fid) {
   const first = curs[0];
   return { title: f.name, subtitle: `Statement · ${fmtDate(todayISO())}`, big: first ? fmt(Math.abs(bal[first]), first) : 'Settled up',
     bigNote: first ? (bal[first] > 0 ? `${f.name} owes ${imgName(ME)}` : `${imgName(ME)} owes ${f.name}`) : 'Nothing owed either way',
-    sections: sections.length ? sections : [{ heading: '', lines: [] }] };
+    sections: sections.length ? sections : [{ heading: '', lines: [] }],
+    qr: curs.some(c => bal[c] > 0) ? { amount: curs.filter(c => bal[c] > 0).map(c => fmt(bal[c], c)).join(' + '), who: f.name } : null };
 }
 
-const pageName = (filename, i, n) => n > 1 ? filename.replace(/\.png$/, `-${i + 1}of${n}.png`) : filename;
+const pageName = (filename, i, n) => n === 2 ? (i === 0 ? filename : filename.replace(/\.png$/, '-pay-qr.png')) : n > 2 ? filename.replace(/\.png$/, `-${i + 1}of${n}.png`) : filename;
 const asFiles = (blobs, filename) => blobs.map((b, i) => new File([b], pageName(filename, i, blobs.length), { type: 'image/png' }));
 function saveAll(blobs, filename) { blobs.forEach((b, i) => setTimeout(() => download(pageName(filename, i, blobs.length), b), i * 400)); }
 async function shareAll(blobs, filename) {
@@ -1004,12 +1086,12 @@ async function shareAll(blobs, filename) {
 const previewHtml = urls => urls.map(u => `<img src="${u}" alt="Image page" style="width:100%;display:block;border-radius:12px;background:#fff;border:1px solid var(--line);margin-bottom:8px">`).join('');
 
 async function imageSheet(spec, filename) {
-  const blobs = await makeImages(spec);
+  const blobs = await withQr(spec, await makeImages(spec));
   const urls = blobs.map(b => URL.createObjectURL(b));
   const canShare = !!navigator.canShare?.({ files: asFiles(blobs, filename) });
   const dlg = sheet(`<h3>Image${blobs.length > 1 ? `s · ${blobs.length} pages` : ''}</h3>
     <div style="max-height:56vh;overflow:auto">${previewHtml(urls)}</div>
-    <p class="small muted" style="margin:8px 0">${blobs.length > 1 ? 'Split into pages so they stay sharp in WhatsApp. ' : ''}You can also long-press an image to save or copy it.</p>
+    <p class="small muted" style="margin:8px 0">${wantQr(spec) ? 'Includes your “Scan to pay” QR as a second image. ' : ''}You can also long-press an image to save or copy it.</p>
     <div class="btns"><button class="btn" id="isave">Save image${blobs.length > 1 ? 's' : ''}</button>${canShare ? '<button class="btn primary" id="ishare">Share</button>' : ''}</div>`,
   { onClose: () => setTimeout(() => urls.forEach(u => URL.revokeObjectURL(u)), 1000) });
   dlg.querySelector('#isave').onclick = () => saveAll(blobs, filename);
@@ -1054,6 +1136,14 @@ function reportImageSpec(groupId, range, who) {
       lines: p.lines.map(l => [`${shortDate(l.date)} · ${l.merchant}`, fmt(l.cents, p.cur)]),
     })) : [{ heading: '', lines: [] }],
     footer: 'Each amount is that person’s share of the receipt, incl. tax & charges.',
+    qr: (() => {
+      const toMe = pairs.filter(p => p.to === ME);
+      if (!toMe.length) return null;
+      const debtors = [...new Set(toMe.map(p => p.from))];
+      if (debtors.length !== 1) return {};
+      const t = {}; for (const p of toMe) t[p.cur] = (t[p.cur] || 0) + p.total;
+      return { amount: fmtMulti(t), who: imgName(debtors[0]) };
+    })(),
   };
 }
 function reportText(groupId, range, who) {
@@ -1114,12 +1204,13 @@ function reportSheet(groupId) {
       }
       draw();
     });
-    blobs = await makeImages(reportImageSpec(sel.group, range(), sel.who));
+    const spec = reportImageSpec(sel.group, range(), sel.who);
+    blobs = await withQr(spec, await makeImages(spec));
     urls.forEach(u => URL.revokeObjectURL(u));
     urls = blobs.map(b => URL.createObjectURL(b));
     $d('#rpi').innerHTML = previewHtml(urls);
     $d('#rpn').hidden = blobs.length < 2;
-    $d('#rpn').textContent = `${blobs.length} pages, so each stays sharp in WhatsApp.`;
+    $d('#rpn').textContent = wantQr(spec) ? 'Report + your “Scan to pay” QR as a second image.' : `${blobs.length} images.`;
     $d('#rps').textContent = blobs.length > 1 ? 'Save images' : 'Save image';
     $d('#rpx').textContent = blobs.length > 1 ? `Share ${blobs.length} images` : 'Share image';
     $d('#rpx').hidden = !navigator.canShare?.({ files: asFiles(blobs, 'r.png') });
@@ -1164,6 +1255,18 @@ function settingsPage() {
       </div>
     </div>
     <div class="card stack">
+      <h2>Payment QR</h2>
+      ${state.hasQr ? `
+        <div class="row" style="align-items:flex-start;gap:14px"><img id="qrprev" alt="Your payment QR" style="width:110px;height:110px;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line);flex:none">
+          <div class="grow stack" style="min-width:0">
+            <label class="field"><span>Label (optional)</span><input type="text" data-setting="qrLabel" value="${esc(s.qrLabel || '')}" placeholder="e.g. DuitNow · Maybank"></label>
+          </div></div>
+        <label class="row small"><input type="checkbox" data-act="qr-attach" ${s.qrAttach !== false ? 'checked' : ''} style="width:20px;height:20px;min-height:0"> Add a “Scan to pay” page to report, statement and share images</label>
+        <div class="btns"><label class="btn sm">Replace QR<input type="file" accept="image/*" data-qr hidden></label><button class="btn sm danger" data-act="qr-remove">Remove</button></div>`
+      : `<p class="small muted" style="margin:0">Add your DuitNow or bank QR (a screenshot from your banking app works). It's added as a separate “Scan to pay” image when you share a report, statement or someone's share, so friends can pay you straight away.</p>
+        <label class="btn sm primary" style="align-self:flex-start">Upload QR image<input type="file" accept="image/*" data-qr hidden></label>`}
+    </div>
+    <div class="card stack">
       <h2>Appearance</h2>
       <div class="seg">${[['lively', 'Lively'], ['classic', 'Classic']].map(([v, l]) => `<button class="${s.style === v ? 'on' : ''}" data-act="style" data-v="${v}">${l}</button>`).join('')}</div>
       ${s.style === 'lively' ? `<label class="row small"><input type="checkbox" data-act="pattern" ${s.pattern !== false ? 'checked' : ''} style="width:20px;height:20px;min-height:0"> Background pattern</label>` : ''}
@@ -1173,16 +1276,18 @@ function settingsPage() {
     <div class="card flush"><div class="list"><a href="#/groups">${icon('group', 'width=22 height=22')}<div class="grow">Groups</div><span class="muted">${state.groups.length}</span></a></div></div>
     <div class="card stack">
       <h2>Export & backup</h2>
-      <p class="small muted" style="margin:0">Your data lives only on this phone. Back it up now and then, e.g. to Google Drive.</p>
+      <p class="small muted" style="margin:0">Your data lives only on this phone. ${state.settings.lastBackup ? `<strong>Last backup ${ago(state.settings.lastBackup)}</strong>${state.settings.changes ? ` · ${state.settings.changes} change${state.settings.changes === 1 ? '' : 's'} since` : ''}.` : '<strong>Not backed up yet.</strong>'} “Back up now” lets you save it straight to Google Drive or send it to yourself on WhatsApp.</p>
       <div class="btns"><button class="btn sm" data-act="export-csv" data-kind="shares">CSV: who owes what</button><button class="btn sm" data-act="export-csv" data-kind="items">CSV: all items</button><button class="btn sm" data-act="export-csv" data-kind="ledger">CSV: debts & payments</button></div>
       <label class="row small"><input type="checkbox" id="withPhotos" checked style="width:auto;min-height:0"> Include receipt photos in backup</label>
-      <div class="btns"><button class="btn sm primary" data-act="backup">Download backup</button><label class="btn sm">Restore backup<input type="file" accept="application/json,.json" data-restore hidden></label></div>
+      <div class="btns"><button class="btn sm primary" data-act="backup">Back up now</button><label class="btn sm">Restore backup<input type="file" accept="application/json,.json,text/plain,.txt" data-restore hidden></label></div>
       <button class="btn sm danger" data-act="erase">Erase all data</button>
     </div>
     <p class="small muted" style="text-align:center">Split Receipts ${VERSION} · ${state.receipts.length} receipts · <span id="persist"></span></p>`;
   return {
     title: 'Settings', tab: 'settings', html,
-    async after() { const p = await navigator.storage?.persisted?.(); const el = $('#persist'); if (el) el.textContent = p ? 'storage protected' : 'storage not yet protected'; },
+    async after() {
+      if (state.hasQr) setPhoto('#qrprev', 'payqr');
+      const p = await navigator.storage?.persisted?.(); const el = $('#persist'); if (el) el.textContent = p ? 'storage protected' : 'storage not yet protected'; },
   };
 }
 
@@ -1216,16 +1321,32 @@ function exportCSV(kind) {
   download(`split-receipts-${kind}-${todayISO()}.csv`, csv(rows), 'text/csv');
 }
 
-async function backup(withPhotos) {
+async function backup(withPhotos = true) {
   const photos = {};
   if (withPhotos) for (const key of await db.keys('photos')) {
     if (key === 'draft') continue;
     const b = await db.get('photos', key);
     photos[key] = 'data:' + (b.type || 'image/jpeg') + ';base64,' + await blobToBase64(b);
   }
-  const { apiKey, ...settings } = state.settings;
+  const { apiKey, changes, lastBackup, backupSnooze, ...settings } = state.settings;
   const data = { app: 'split-receipts', version: 1, exportedAt: new Date().toISOString(), people: state.people, groups: state.groups, receipts: state.receipts, payments: state.payments, settings, photos };
-  download(`split-receipts-backup-${todayISO()}.json`, JSON.stringify(data), 'application/json');
+  const name = `split-receipts-backup-${todayISO()}.json`;
+  const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+  // Prefer the share sheet (Google Drive, WhatsApp to yourself, email…). Some phones only allow
+  // sharing plain-text files, so fall back to a .txt copy of the same backup, then to a download.
+  const tryShare = async file => { if (!navigator.canShare?.({ files: [file] })) return false; await navigator.share({ files: [file], title: 'Split Receipts backup' }); return true; };
+  try {
+    const shared = await tryShare(new File([blob], name, { type: 'application/json' }))
+      || await tryShare(new File([blob], name.replace(/\.json$/, '.txt'), { type: 'text/plain' }));
+    if (!shared) download(name, blob);
+  } catch (e) {
+    if (e.name === 'AbortError') return; // closed the share sheet: not backed up
+    download(name, blob);
+  }
+  Object.assign(state.settings, { lastBackup: Date.now(), changes: 0, backupSnooze: 0 });
+  await saveSettings();
+  toast('Backup saved ✓');
+  rerender();
 }
 async function restore(file) {
   let data;
@@ -1269,6 +1390,18 @@ const actions = {
   'unit-inc': el => { const it = itemOf(el); const used = Object.values(it.shares).reduce((s, n) => s + n, 0); if (used >= it.qty) return toast(`All ${it.qty} already assigned.`); it.shares[el.dataset.pid] = (it.shares[el.dataset.pid] || 0) + 1; changed(); },
   'unit-dec': el => { const it = itemOf(el); const pid = el.dataset.pid; if (!it.shares[pid]) return; it.shares[pid]--; if (!it.shares[pid]) delete it.shares[pid]; changed(); },
   'edit-item': el => editItemSheet(el.dataset.id),
+  'assign-mode': () => { state.assignMode = !state.assignMode; rerender(); },
+  'brush': el => { state.brush = el.dataset.pid; rerender(); },
+  'paint': el => {
+    const it = itemOf(el); const b = state.brush; if (!it || !b) return;
+    if (it.byUnit && it.qty > 1) {
+      const used = Object.values(it.shares).reduce((a, n) => a + n, 0);
+      if (used < it.qty) it.shares[b] = (it.shares[b] || 0) + 1;      // add one more unit
+      else if (it.shares[b]) delete it.shares[b];                        // all taken: tap again clears theirs
+      else return toast(`All ${it.qty} are already assigned.`);
+    } else if (it.shares[b] > 0) delete it.shares[b]; else it.shares[b] = 1;
+    changed();
+  },
   'add-item': () => editItemSheet(null),
   'add-adj': el => addAdjustment(el.dataset.kind, el.dataset.label),
   'del-adj': el => { state.draft.adjustments = state.draft.adjustments.filter(a => a.id !== el.dataset.id); changed(); },
@@ -1323,7 +1456,10 @@ const actions = {
   'pattern': async el => { state.settings.pattern = !(state.settings.pattern !== false); await saveSettings(); applyTheme(); rerender(); },
   'accent': async el => { state.settings.accent = el.dataset.v; await saveSettings(); applyTheme(); rerender(); },
   'export-csv': el => exportCSV(el.dataset.kind),
-  'backup': () => backup($('#withPhotos').checked),
+  'backup': () => backup($('#withPhotos') ? $('#withPhotos').checked : true),
+  'qr-attach': async () => { state.settings.qrAttach = state.settings.qrAttach === false; await saveSettings(); rerender(); },
+  'qr-remove': async () => { if (!(await confirmSheet('Remove payment QR?', 'Images will no longer include a “Scan to pay” page.', 'Remove'))) return; await db.del('photos', 'payqr'); state.hasQr = false; rerender(); },
+  'backup-later': async () => { state.settings.backupSnooze = Date.now() + 7 * 864e5; await saveSettings(); rerender(); },
   'erase': async () => {
     if (!(await confirmSheet('Erase everything?', 'All receipts, friends, groups, payments and photos on this phone will be deleted. Download a backup first if unsure.', 'Erase all'))) return;
     for (const s of ['people', 'groups', 'receipts', 'payments', 'photos', 'kv']) await db.clear(s);
@@ -1370,6 +1506,11 @@ document.addEventListener('change', async e => {
     const rid = t.dataset.receiptGroup;
     if (t.value === '__new') { t.value = state.receipts.find(x => x.id === rid)?.groupId || ''; newGroupForReceipt(rid); return; }
     await setReceiptGroup(rid, t.value); return;
+  }
+  if (t.matches('[data-qr]')) {
+    const f = t.files[0]; t.value = ''; if (!f) return;
+    await db.put('photos', f, 'payqr'); state.hasQr = true; state.settings.qrAttach = true; await saveSettings();
+    toast('Payment QR saved'); rerender(); return;
   }
   if (t.matches('[data-restore]')) { const f = t.files[0]; t.value = ''; if (f) restore(f); return; }
   if (t.matches('[data-setting]')) {
