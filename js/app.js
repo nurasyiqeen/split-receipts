@@ -3,7 +3,7 @@ import { scanWithFallback, checkReceipt, DEFAULT_MODEL } from './scan.js';
 import * as S from './split.js';
 
 const ME = 'me';
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 const PERSON_COLORS = ['#ec5f93', '#7c5ce0', '#2f9fd8', '#f59a3c', '#22a699', '#d6457a', '#5b6fd6', '#f2705a', '#4fae5a', '#a855c7', '#1fb3c4', '#d19a1a'];
 const ACCENTS = ['#0f9d76', '#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0891b2', '#475569'];
 // Lively style: accent + a second colour for gradients.
@@ -901,8 +901,16 @@ function shareLineLabel(l) { return `${l.name}${l.units ? ` ×${l.units}` : l.sh
 // Pages are at most 1080 x 1500 px: WhatsApp (even in HD) shrinks images by their longest side,
 // so one very tall image ends up blurry while several shorter pages stay sharp.
 const PAGE_W = 1080, PAGE_MAX_H = Infinity; // one image, however long
+// This phone's screen in real pixels (portrait), e.g. 1080 x 2400. Images never exceed it.
+function screenSize() {
+  const dpr = window.devicePixelRatio || 1;
+  let w = Math.round(Math.min(screen.width, screen.height) * dpr), h = Math.round(Math.max(screen.width, screen.height) * dpr);
+  if (!(w >= 600 && h >= w)) { w = 1080; h = 2340; }   // odd values (desktop, emulators): use a typical phone
+  if (w > 1440) { h = Math.round(h * 1440 / w); w = 1440; }
+  return { w, h, ratio: h / w };
+}
 async function makeImages({ title, subtitle, big, bigNote, sections, footer }) {
-  const W = PAGE_W, P = 64, accent = state.settings.accent;
+  let W = PAGE_W; const P = 64, accent = state.settings.accent;
   const accent2 = state.settings.style === 'lively' && LIVELY[accent] ? LIVELY[accent] : accent;
   const F = (w, px) => `${w} ${px}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
   const ink = '#1b1f1d', ink2 = '#5d6661', line = '#e3e6e2';
@@ -986,16 +994,23 @@ async function makeImages({ title, subtitle, big, bigNote, sections, footer }) {
   // ---- paint ----
   const total = pages.length;
   return Promise.all(pages.map((pg, i) => {
+    // Fit the image to the phone screen (like a screenshot), which WhatsApp keeps sharp.
+    // Too tall for the screen? Lay it out wider and scale everything down to fit.
+    const H = pg.h + (total > 1 ? PAGE_NO_H : 0);
+    const scr = screenSize();
+    W = Math.max(PAGE_W, H / scr.ratio);
+    const k = scr.w / W;
     const c = document.createElement('canvas');
-    c.width = W; c.height = pg.h + (total > 1 ? PAGE_NO_H : 0);
+    c.width = scr.w; c.height = Math.round(H * k);
     const ctx = c.getContext('2d');
-    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.scale(k, k);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
     let y = 0;
     for (const b of pg.blocks) {
       const blk = b || headerSmall(i + 1, total);
       blk.draw(ctx, y); y += blk.h;
     }
-    if (total > 1) { ctx.fillStyle = '#9aa29e'; ctx.font = F(600, 24); ctx.textAlign = 'right'; ctx.fillText(`Page ${i + 1} of ${total}`, W - P, c.height - 28); ctx.textAlign = 'left'; }
+    if (total > 1) { ctx.fillStyle = '#9aa29e'; ctx.font = F(600, 24); ctx.textAlign = 'right'; ctx.fillText(`Page ${i + 1} of ${total}`, W - P, H - 28); ctx.textAlign = 'left'; }
     return new Promise(res => c.toBlob(res, 'image/png'));
   }));
 }
